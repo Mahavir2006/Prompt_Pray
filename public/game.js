@@ -10,18 +10,79 @@
         medic: '#ef476f'
     };
 
+    // ── MAP INTEGRATION START ──
+    const MAP_SCALE = 3;
     const MAP_ZONES = [
-        { id: 'ship', x: 50, y: 50, w: 700, h: 400, color: '#0e1a2b', border: '#1a3a5c', label: 'SHIP INTERIOR' },
-        { id: 'doorway', x: 750, y: 175, w: 100, h: 150, color: '#121e30', border: '#1a3a5c' },
-        { id: 'exterior', x: 850, y: 50, w: 550, h: 400, color: '#0a1420', border: '#142640', label: 'EXTERIOR' },
-        { id: 'corridor1', x: 1400, y: 150, w: 550, h: 200, color: '#080f18', border: '#142640' },
-        { id: 'beacon', x: 1950, y: 50, w: 550, h: 400, color: '#0a1420', border: '#142640', label: 'BEACON SITE' },
-        { id: 'corridor2', x: 2500, y: 150, w: 550, h: 200, color: '#080f18', border: '#142640' },
-        { id: 'satellite', x: 3050, y: 50, w: 550, h: 400, color: '#0a1420', border: '#142640', label: 'SATELLITE SITE' }
+        { id: 'cockpit', x: 420, y: 40, w: 184, h: 120 },
+        { id: 'cockpit_room', x: 300, y: 160, w: 424, h: 130 },
+        { id: 'corridor', x: 475, y: 160, w: 74, h: 800 },
+        { id: 'left_1', x: 255, y: 290, w: 240, h: 80 },
+        { id: 'left_2', x: 210, y: 370, w: 285, h: 80 },
+        { id: 'left_3', x: 170, y: 450, w: 325, h: 80 },
+        { id: 'left_4', x: 140, y: 530, w: 355, h: 80 },
+        { id: 'left_5', x: 110, y: 610, w: 385, h: 80 },
+        { id: 'left_6', x: 80, y: 690, w: 415, h: 70 },
+        { id: 'right_1', x: 529, y: 290, w: 240, h: 80 },
+        { id: 'right_2', x: 529, y: 370, w: 285, h: 80 },
+        { id: 'right_3', x: 529, y: 450, w: 325, h: 80 },
+        { id: 'right_4', x: 529, y: 530, w: 355, h: 80 },
+        { id: 'right_5', x: 529, y: 610, w: 385, h: 80 },
+        { id: 'right_6', x: 529, y: 690, w: 415, h: 70 },
+        { id: 'engine', x: 60, y: 760, w: 904, h: 220 },
+        { id: 'wing_left', x: 5, y: 430, w: 55, h: 100 },
+        { id: 'wing_right', x: 964, y: 430, w: 55, h: 100 },
     ];
+    MAP_ZONES.forEach(z => { z.x *= MAP_SCALE; z.y *= MAP_SCALE; z.w *= MAP_SCALE; z.h *= MAP_SCALE; });
 
-    const WORLD_W = 3650;
-    const WORLD_H = 500;
+    const OBSTACLES = [];
+
+    // Fetch precise collisions from Tiled JSON
+    fetch('/assets/ship_collisions.json').then(r => r.json()).then(mapData => {
+        const collisionLayer = mapData.layers.find(layer => layer.name === 'collisions');
+        if (collisionLayer && collisionLayer.objects) {
+            collisionLayer.objects.forEach(obj => {
+                if (obj.width === 0 && obj.height === 0) return;
+
+                let aabbX = obj.x;
+                let aabbY = obj.y;
+                let aabbW = obj.width;
+                let aabbH = obj.height;
+
+                if (obj.rotation) {
+                    const rad = obj.rotation * (Math.PI / 180);
+                    const cos = Math.cos(rad);
+                    const sin = Math.sin(rad);
+
+                    const c1 = { x: 0, y: 0 };
+                    const c2 = { x: obj.width * cos, y: obj.width * sin };
+                    const c3 = { x: -obj.height * sin, y: obj.height * cos };
+                    const c4 = { x: obj.width * cos - obj.height * sin, y: obj.width * sin + obj.height * cos };
+
+                    const minX = Math.min(c1.x, c2.x, c3.x, c4.x);
+                    const maxX = Math.max(c1.x, c2.x, c3.x, c4.x);
+                    const minY = Math.min(c1.y, c2.y, c3.y, c4.y);
+                    const maxY = Math.max(c1.y, c2.y, c3.y, c4.y);
+
+                    aabbX = obj.x + minX;
+                    aabbY = obj.y + minY;
+                    aabbW = maxX - minX;
+                    aabbH = maxY - minY;
+                }
+
+                OBSTACLES.push({
+                    type: 'rect',
+                    x: aabbX * MAP_SCALE,
+                    y: aabbY * MAP_SCALE,
+                    w: aabbW * MAP_SCALE,
+                    h: aabbH * MAP_SCALE
+                });
+            });
+        }
+    }).catch(e => console.error('Failed to load ship_collisions.json', e));
+
+    const WORLD_W = 1024 * MAP_SCALE;
+    const WORLD_H = 1024 * MAP_SCALE;
+    // ── MAP INTEGRATION END ──
 
     // ======================== STATE ========================
     let ws = null;
@@ -72,6 +133,10 @@
     const roleSprites = {};
     let spritesLoaded = 0;
     let totalSprites = 0;
+
+    // ── MAP INTEGRATION: load map background ──
+    const mapBgImage = loadImg('/assets/map.png');
+    let debugMode = false;
 
     function loadImg(src) {
         totalSprites++;
@@ -143,7 +208,7 @@
         return playerAnimState[id];
     }
 
-    // Convert angle to 8-direction name
+    // convert angle to 8-direction name
     function angleToDir(angle) {
         // angle is in radians, 0 = east
         const deg = ((angle * 180 / Math.PI) + 360) % 360;
@@ -155,6 +220,233 @@
         if (deg >= 202.5 && deg < 247.5) return 'north-west';
         if (deg >= 247.5 && deg < 292.5) return 'north';
         return 'north-east';
+    }
+
+    // ======================== VOICE CHAT (WEBRTC) ========================
+    let localStream = null;
+    let selectedAudioDeviceId = null;
+    let speakerEnabled = false;
+    const peerConnections = {};
+    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    // State per peer for Perfect Negotiation
+    const pcStates = {}; // peerId -> { makingOffer: false }
+
+    async function toggleSpeaker(forceState) {
+        if (forceState !== undefined) speakerEnabled = forceState;
+        else speakerEnabled = !speakerEnabled;
+
+        const btn = document.getElementById('speakerBtn');
+        if (!btn) return;
+
+        if (speakerEnabled) {
+            btn.textContent = 'SPEAKER ON';
+            btn.style.background = 'rgba(6, 214, 160, 0.2)';
+            btn.style.borderColor = 'rgba(6, 214, 160, 0.5)';
+            btn.style.color = '#06d6a0';
+
+            document.querySelectorAll('audio').forEach(el => el.muted = false);
+
+            const speakerSelect = document.getElementById('speakerSelect');
+            if (speakerSelect && navigator.mediaDevices.enumerateDevices) {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+                    if (audioOutputs.length > 0) {
+                        speakerSelect.innerHTML = audioOutputs.map((d, i) =>
+                            `<option value="${d.deviceId}">${d.label || 'Speaker ' + (i + 1)}</option>`
+                        ).join('');
+                        speakerSelect.style.display = 'inline-block';
+                        speakerSelect.onchange = () => {
+                            selectedAudioDeviceId = speakerSelect.value;
+                            document.querySelectorAll('audio').forEach(el => {
+                                if (typeof el.setSinkId === 'function') {
+                                    el.setSinkId(selectedAudioDeviceId).catch(e => console.warn("Sink update failed:", e));
+                                }
+                            });
+                        };
+                        selectedAudioDeviceId = speakerSelect.value;
+                    }
+                } catch (e) {
+                    console.warn(e);
+                }
+            }
+        } else {
+            btn.textContent = 'SPEAKER OFF';
+            btn.style.background = 'rgba(230, 57, 70, 0.2)';
+            btn.style.borderColor = 'rgba(230, 57, 70, 0.5)';
+            btn.style.color = '#e63946';
+
+            document.querySelectorAll('audio').forEach(el => el.muted = true);
+
+            const speakerSelect = document.getElementById('speakerSelect');
+            if (speakerSelect) speakerSelect.style.display = 'none';
+            selectedAudioDeviceId = null;
+        }
+    }
+
+    async function toggleMic() {
+        const btn = document.getElementById('micBtn');
+        if (localStream) {
+            // Disable Mic
+            localStream.getTracks().forEach(t => t.stop());
+            localStream = null;
+
+            // Remove tracks instead of closing the connection so Speaker can keep listening!
+            Object.values(peerConnections).forEach(pc => {
+                const senders = pc.getSenders();
+                senders.forEach(s => {
+                    if (s.track && s.track.kind === 'audio') {
+                        pc.removeTrack(s);
+                    }
+                });
+            });
+
+            btn.textContent = 'MIC OFF';
+            btn.style.background = 'rgba(230, 57, 70, 0.2)';
+            btn.style.borderColor = 'rgba(230, 57, 70, 0.5)';
+            btn.style.color = '#e63946';
+            return;
+        }
+
+        try {
+            // Get Mic Access
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+
+            btn.textContent = 'MIC ON (LIVE)';
+            btn.style.background = 'rgba(6, 214, 160, 0.2)';
+            btn.style.borderColor = 'rgba(6, 214, 160, 0.5)';
+            btn.style.color = '#06d6a0';
+
+            // Add local track to any existing peer connections right away (this triggers onnegotiationneeded automatically!)
+            Object.keys(peerConnections).forEach(pidStr => {
+                const pid = parseInt(pidStr);
+                const pc = peerConnections[pid];
+                const hasTrack = pc.getSenders().some(s => s.track && s.track.kind === 'audio');
+                if (!hasTrack && pc.signalingState !== 'closed') {
+                    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+                }
+            });
+
+            if (activePlayerIds.length > 0) {
+                connectToPeers(activePlayerIds);
+            }
+
+            // Refresh speaker dropdown labels if speaker is enabled without recursively flipping state
+            if (speakerEnabled) {
+                await toggleSpeaker(true);
+            }
+
+        } catch (e) {
+            console.warn("Mic access denied or error:", e);
+            if (!navigator.mediaDevices) {
+                showError("HTTPS or localhost required for microphone.");
+            } else if (e.name === "NotAllowedError" || e.name === "PermissionDeniedError") {
+                showError("Microphone permission blocked by browser.");
+            } else if (e.name === "NotFoundError" || e.name === "DevicesNotFoundError") {
+                showError("No microphone found.");
+            } else {
+                showError("Mic error: " + e.message);
+            }
+        }
+    }
+
+    function getPeerConnection(peerId) {
+        if (peerConnections[peerId]) return peerConnections[peerId];
+        const pc = new RTCPeerConnection(rtcConfig);
+        peerConnections[peerId] = pc;
+        pcStates[peerId] = { makingOffer: false };
+
+        if (localStream) {
+            localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+        }
+
+        pc.onnegotiationneeded = async () => {
+            try {
+                pcStates[peerId].makingOffer = true;
+                await pc.setLocalDescription();
+                if (ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: peerId, signalData: { offer: pc.localDescription } }));
+                }
+            } catch (err) {
+                console.warn("Negotiation error:", err);
+            } finally {
+                pcStates[peerId].makingOffer = false;
+            }
+        };
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate && ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: peerId, signalData: { candidate: e.candidate } }));
+            }
+        };
+        pc.ontrack = async (e) => {
+            let audioEl = document.getElementById('audio_' + peerId);
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.id = 'audio_' + peerId;
+                audioEl.autoplay = true;
+                audioEl.muted = !speakerEnabled; // ONLY audibly play if speaker is enabled
+
+                // Set the selected speaker device if chosen
+                if (selectedAudioDeviceId && typeof audioEl.setSinkId === 'function') {
+                    try {
+                        await audioEl.setSinkId(selectedAudioDeviceId);
+                    } catch (err) {
+                        console.warn("Failed to set speaker output", err);
+                    }
+                }
+
+                document.body.appendChild(audioEl);
+            }
+            audioEl.srcObject = e.streams[0];
+        };
+        return pc;
+    }
+
+    function connectToPeers(playerIds) {
+        for (const pid of playerIds) {
+            if (pid !== myId && !peerConnections[pid]) {
+                const pc = getPeerConnection(pid);
+                // Only the "smaller" ID establishes the initial polite mesh connection line to prevent simultaneous cross-firing glare
+                if (myId < pid) {
+                    pc.createDataChannel('gameData');
+                }
+            }
+        }
+    }
+
+    async function handleWebRTCSignal(msg) {
+        const senderId = msg.senderId;
+        const data = msg.signalData;
+        const pc = getPeerConnection(senderId);
+        const state = pcStates[senderId];
+
+        // Perfect Negotiation Pattern
+        const polite = myId > senderId; // Lower ID (Host usually) is impolite, Higher ID is polite
+
+        try {
+            if (data.offer) {
+                const offerCollision = (state.makingOffer || pc.signalingState !== "stable");
+                if (offerCollision) {
+                    if (!polite) return; // Impolite peer ignores the incoming offer and sticks to its own
+                    await Promise.all([
+                        pc.setLocalDescription({ type: "rollback" }),
+                        pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+                    ]);
+                } else {
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                }
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: senderId, signalData: { answer: pc.localDescription } }));
+            } else if (data.answer) {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            } else if (data.candidate) {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            }
+        } catch (e) {
+            console.warn("WebRTC error handling signal from", senderId, e);
+        }
     }
 
     // ======================== CANVAS SETUP ========================
@@ -182,7 +474,11 @@
     const hudAbility = document.getElementById('hudAbility');
     const hudAbilityCd = document.getElementById('hudAbilityCd');
 
+    let activePlayerIds = [];
+
     // ======================== LOBBY LOGIC ========================
+    document.getElementById('speakerBtn').onclick = () => toggleSpeaker();
+    document.getElementById('micBtn').onclick = () => toggleMic();
     document.getElementById('createBtn').onclick = () => {
         const name = document.getElementById('nameInput').value.trim();
         if (!name) return showError('Enter a Callsign');
@@ -246,6 +542,8 @@
 
     function updateLobbyUI(data) {
         document.getElementById('roomCodeDisplay').textContent = data.roomCode;
+        activePlayerIds = data.players.map(p => p.id);
+        connectToPeers(activePlayerIds);
 
         const takenRoles = new Set();
         data.players.forEach(p => { if (p.role && p.id !== myId) takenRoles.add(p.role); });
@@ -281,6 +579,14 @@
 
     // ======================== WEBSOCKET ========================
     function connect(onOpen) {
+        if (ws) {
+            ws.onclose = null;
+            ws.close();
+            ws = null;
+            Object.values(peerConnections).forEach(pc => pc.close());
+            for (let key in peerConnections) delete peerConnections[key];
+        }
+
         const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
         ws = new WebSocket(`${protocol}://${location.host}`);
 
@@ -300,7 +606,7 @@
         };
 
         ws.onerror = () => {
-            showError('Connection failed');
+            showError('Connection failed. Server might be down!');
         };
     }
 
@@ -354,6 +660,10 @@
 
             case 'error':
                 showError(msg.message);
+                break;
+
+            case 'webrtc_signal':
+                handleWebRTCSignal(msg);
                 break;
         }
     }
@@ -414,7 +724,33 @@
             case 'announcement':
                 showAnnouncement(evt.text, evt.duration || 3, evt.color);
                 break;
+            case 'chat':
+                displayChatMessage(evt.name, evt.msg, evt.color);
+                break;
         }
+    }
+
+    function displayChatMessage(name, msg, color) {
+        const chatMessages = document.getElementById('chatMessages');
+        if (!chatMessages) return;
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'chat-message';
+        // Style name with color
+        msgDiv.innerHTML = `<span class="author" style="color:${color}">${name}:</span>${msg}`;
+
+        chatMessages.appendChild(msgDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll
+
+        // Fade out after 10s
+        setTimeout(() => {
+            msgDiv.classList.add('fade-out');
+            setTimeout(() => {
+                if (chatMessages.contains(msgDiv)) {
+                    chatMessages.removeChild(msgDiv);
+                }
+            }, 1000); // Wait for CSS transition
+        }, 10000);
     }
 
     function showAnnouncement(text, duration, color) {
@@ -457,8 +793,39 @@
 
     // ======================== INPUT ========================
     window.addEventListener('keydown', (e) => {
-        if (e.target.tagName === 'INPUT') return;
         const k = e.key.toLowerCase();
+
+        // Chat toggle
+        const chatInput = document.getElementById('chatInput');
+        if (chatInput && document.activeElement === chatInput) {
+            if (e.key === 'Enter') {
+                const text = chatInput.value.trim();
+                if (text.length > 0 && ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({ type: 'chat', msg: text }));
+                }
+                chatInput.value = '';
+                chatInput.blur();
+                chatInput.style.display = 'none';
+            } else if (e.key === 'Escape') {
+                chatInput.value = '';
+                chatInput.blur();
+                chatInput.style.display = 'none';
+            }
+            return; // Block movement keys while typing
+        }
+
+        // Open chat if not typing elsewhere
+        if (e.key === 'Enter' && screenPhase === 'game') {
+            if (chatInput) {
+                chatInput.style.display = 'block';
+                chatInput.focus();
+            }
+            e.preventDefault();
+            return;
+        }
+
+        if (e.target.tagName === 'INPUT') return;
+
         if (k === 'w') keys.w = true;
         if (k === 'a') keys.a = true;
         if (k === 's') keys.s = true;
@@ -466,6 +833,8 @@
         if (k === 'e') interacting = true;
         if (k === 'q') abilityPressed = true;
         if (k === 'tab') { tabDown = true; e.preventDefault(); }
+        // ── MAP INTEGRATION: debug toggle ──
+        if (k === 'f3') { debugMode = !debugMode; e.preventDefault(); }
     });
 
     window.addEventListener('keyup', (e) => {
@@ -512,6 +881,15 @@
         const targetY = me.y;
         camX += (targetX - camX) * 0.1;
         camY += (targetY - camY) * 0.1;
+
+        // ── MAP INTEGRATION: clamp camera to world bounds ──
+        const halfW = canvas.width / 2;
+        const halfH = canvas.height / 2;
+        camX = Math.max(halfW, Math.min(WORLD_W - halfW, camX));
+        camY = Math.max(halfH, Math.min(WORLD_H - halfH, camY));
+        // If canvas is larger than world, center it
+        if (canvas.width >= WORLD_W) camX = WORLD_W / 2;
+        if (canvas.height >= WORLD_H) camY = WORLD_H / 2;
 
         // Camera shake
         if (camShakeIntensity > 0) {
@@ -626,65 +1004,62 @@
         updateHUD();
     }
 
+    // ── MAP INTEGRATION START ──
     function drawMap() {
-        for (const zone of MAP_ZONES) {
-            if (zone.id === 'doorway' && gameState && !gameState.doorUnlocked) {
-                // Draw locked door
-                const s = worldToScreen(zone.x, zone.y);
-                ctx.fillStyle = '#2a1a1a';
-                ctx.fillRect(s.x, s.y, zone.w, zone.h);
-                ctx.strokeStyle = '#e63946';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.strokeRect(s.x, s.y, zone.w, zone.h);
-                ctx.setLineDash([]);
+        // Draw the spaceship map image as the base layer
+        const s = worldToScreen(0, 0);
+        if (mapBgImage.complete && mapBgImage.naturalWidth > 0) {
+            ctx.drawImage(mapBgImage, s.x, s.y, WORLD_W, WORLD_H);
+        }
 
-                // Lock icon
-                ctx.fillStyle = '#e63946';
-                ctx.font = '16px Orbitron';
-                ctx.textAlign = 'center';
-                ctx.fillText('🔒', s.x + zone.w / 2, s.y + zone.h / 2 + 6);
-                continue;
+        // Debug overlay (toggled with F3 key)
+        if (debugMode) {
+            ctx.save();
+            // Draw walkable zones (green outlines)
+            for (const zone of MAP_ZONES) {
+                const zs = worldToScreen(zone.x, zone.y);
+                ctx.fillStyle = 'rgba(0,255,0,0.08)';
+                ctx.fillRect(zs.x, zs.y, zone.w, zone.h);
+                ctx.strokeStyle = 'rgba(0,255,0,0.6)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(zs.x, zs.y, zone.w, zone.h);
+                // Zone label
+                if (zone.label) {
+                    ctx.fillStyle = 'rgba(0,255,0,0.7)';
+                    ctx.font = '9px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(zone.label, zs.x + 3, zs.y + 11);
+                }
             }
-
-            const s = worldToScreen(zone.x, zone.y);
-            // Zone fill
-            ctx.fillStyle = zone.color;
-            ctx.fillRect(s.x, s.y, zone.w, zone.h);
-
-            // Zone border
-            ctx.strokeStyle = zone.border;
-            ctx.lineWidth = 2;
-            ctx.strokeRect(s.x, s.y, zone.w, zone.h);
-
-            // Grid pattern
-            ctx.strokeStyle = 'rgba(26,58,92,0.15)';
-            ctx.lineWidth = 0.5;
-            for (let gx = zone.x; gx < zone.x + zone.w; gx += 40) {
-                const gs = worldToScreen(gx, zone.y);
-                ctx.beginPath();
-                ctx.moveTo(gs.x, gs.y);
-                ctx.lineTo(gs.x, gs.y + zone.h);
-                ctx.stroke();
+            // Draw obstacles (red outlines)
+            for (const obs of OBSTACLES) {
+                if (obs.type === 'rect') {
+                    const os = worldToScreen(obs.x, obs.y);
+                    ctx.fillStyle = 'rgba(255,0,0,0.1)';
+                    ctx.fillRect(os.x, os.y, obs.w, obs.h);
+                    ctx.strokeStyle = 'rgba(255,60,60,0.8)';
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeRect(os.x, os.y, obs.w, obs.h);
+                } else if (obs.type === 'circle') {
+                    const os = worldToScreen(obs.x, obs.y);
+                    ctx.fillStyle = 'rgba(255,0,0,0.1)';
+                    ctx.beginPath();
+                    ctx.arc(os.x, os.y, obs.r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(255,60,60,0.8)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
             }
-            for (let gy = zone.y; gy < zone.y + zone.h; gy += 40) {
-                const gs = worldToScreen(zone.x, gy);
-                ctx.beginPath();
-                ctx.moveTo(gs.x, gs.y);
-                ctx.lineTo(gs.x + zone.w, gs.y);
-                ctx.stroke();
-            }
-
-            // Zone label
-            if (zone.label) {
-                const ls = worldToScreen(zone.x + zone.w / 2, zone.y + 20);
-                ctx.fillStyle = 'rgba(255,255,255,0.08)';
-                ctx.font = '12px Orbitron';
-                ctx.textAlign = 'center';
-                ctx.fillText(zone.label, ls.x, ls.y);
-            }
+            // Debug label
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText('DEBUG MODE (F3)', 10, canvas.height - 10);
+            ctx.restore();
         }
     }
+    // ── MAP INTEGRATION END ──
 
     function drawObjective() {
         if (!gameState.objective) return;
@@ -1382,27 +1757,28 @@
         ctx.globalAlpha = 1;
     }
 
+    // ── MAP INTEGRATION: square minimap for 1024x1024 world ──
     function drawMinimap() {
-        const mmW = 180;
-        const mmH = 45;
+        const mmW = 140;
+        const mmH = 140;
         const mmX = canvas.width - mmW - 16;
         const mmY = 16;
         const scale = mmW / WORLD_W;
 
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        // Background — draw scaled map image or fallback
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
         ctx.fillRect(mmX, mmY, mmW, mmH);
+        if (mapBgImage.complete && mapBgImage.naturalWidth > 0) {
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(mapBgImage, mmX, mmY, mmW, mmH);
+            ctx.globalAlpha = 1;
+        }
         ctx.strokeStyle = 'rgba(76,201,240,0.3)';
         ctx.lineWidth = 1;
         ctx.strokeRect(mmX, mmY, mmW, mmH);
 
-        // Zones
         const me = gameState.players.find(p => p.id === myId);
         const isScout = me?.role === 'scout';
-
-        for (const zone of MAP_ZONES) {
-            ctx.fillStyle = 'rgba(26,58,92,0.3)';
-            ctx.fillRect(mmX + zone.x * scale, mmY + zone.y * scale, zone.w * scale, zone.h * scale);
-        }
 
         // Enemies (Scout sees all, others see nearby)
         for (const e of gameState.enemies) {
