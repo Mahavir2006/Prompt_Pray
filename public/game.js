@@ -82,6 +82,8 @@
 
     const WORLD_W = 1024 * MAP_SCALE;
     const WORLD_H = 1024 * MAP_SCALE;
+    const PLANET_W = 1536 * MAP_SCALE;
+    const PLANET_H = 1024 * MAP_SCALE;
     // ── MAP INTEGRATION END ──
 
     // ======================== STATE ========================
@@ -134,9 +136,53 @@
     let spritesLoaded = 0;
     let totalSprites = 0;
 
-    // ── MAP INTEGRATION: load map background ──
+    // ── MAP INTEGRATION: load map backgrounds ──
     const mapBgImage = loadImg('/assets/map.png');
+    const planetBgImage = loadImg('/assets/Planet_Map.png');
     let debugMode = false;
+    let myCurrentMap = 'ship'; // Track which map the local player is on
+
+    // Planet obstacles (loaded for debug drawing)
+    const PLANET_OBSTACLES = [];
+    fetch('/assets/planet_collisions.json').then(r => r.json()).then(mapData => {
+        const collisionLayer = mapData.layers.find(layer => layer.name === 'collisions');
+        if (collisionLayer && collisionLayer.objects) {
+            collisionLayer.objects.forEach(obj => {
+                if (obj.width > 0 && obj.height > 0) {
+                    let aabbX = obj.x, aabbY = obj.y, aabbW = obj.width, aabbH = obj.height;
+                    if (obj.rotation) {
+                        const rad = obj.rotation * (Math.PI / 180);
+                        const cos = Math.cos(rad), sin = Math.sin(rad);
+                        const c1 = { x: 0, y: 0 };
+                        const c2 = { x: obj.width * cos, y: obj.width * sin };
+                        const c3 = { x: -obj.height * sin, y: obj.height * cos };
+                        const c4 = { x: obj.width * cos - obj.height * sin, y: obj.width * sin + obj.height * cos };
+                        aabbX = obj.x + Math.min(c1.x, c2.x, c3.x, c4.x);
+                        aabbY = obj.y + Math.min(c1.y, c2.y, c3.y, c4.y);
+                        aabbW = Math.max(c1.x, c2.x, c3.x, c4.x) - Math.min(c1.x, c2.x, c3.x, c4.x);
+                        aabbH = Math.max(c1.y, c2.y, c3.y, c4.y) - Math.min(c1.y, c2.y, c3.y, c4.y);
+                    }
+                    if (obj.ellipse) {
+                        PLANET_OBSTACLES.push({ type: 'circle', x: (aabbX + aabbW / 2) * MAP_SCALE, y: (aabbY + aabbH / 2) * MAP_SCALE, r: Math.max(aabbW, aabbH) / 2 * MAP_SCALE });
+                    } else {
+                        PLANET_OBSTACLES.push({ type: 'rect', x: aabbX * MAP_SCALE, y: aabbY * MAP_SCALE, w: aabbW * MAP_SCALE, h: aabbH * MAP_SCALE });
+                    }
+                }
+                if (obj.polygon && obj.polygon.length > 2) {
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    obj.polygon.forEach(p => {
+                        const px = obj.x + p.x, py = obj.y + p.y;
+                        if (px < minX) minX = px; if (py < minY) minY = py;
+                        if (px > maxX) maxX = px; if (py > maxY) maxY = py;
+                    });
+                    const w = maxX - minX, h = maxY - minY;
+                    if (w > 5 && h > 5) {
+                        PLANET_OBSTACLES.push({ type: 'rect', x: minX * MAP_SCALE, y: minY * MAP_SCALE, w: w * MAP_SCALE, h: h * MAP_SCALE });
+                    }
+                }
+            });
+        }
+    }).catch(e => console.error('Failed to load planet_collisions.json', e));
 
     function loadImg(src) {
         totalSprites++;
@@ -877,19 +923,26 @@
         const me = gameState.players.find(p => p.id === myId);
         if (!me) return;
 
+        // Track local player's current map
+        if (me.currentMap && me.currentMap !== myCurrentMap) {
+            myCurrentMap = me.currentMap;
+        }
+
         const targetX = me.x;
         const targetY = me.y;
         camX += (targetX - camX) * 0.1;
         camY += (targetY - camY) * 0.1;
 
-        // ── MAP INTEGRATION: clamp camera to world bounds ──
+        // ── MAP INTEGRATION: clamp camera to world bounds (per map) ──
         const halfW = canvas.width / 2;
         const halfH = canvas.height / 2;
-        camX = Math.max(halfW, Math.min(WORLD_W - halfW, camX));
-        camY = Math.max(halfH, Math.min(WORLD_H - halfH, camY));
+        const worldW = myCurrentMap === 'planet' ? PLANET_W : WORLD_W;
+        const worldH = myCurrentMap === 'planet' ? PLANET_H : WORLD_H;
+        camX = Math.max(halfW, Math.min(worldW - halfW, camX));
+        camY = Math.max(halfH, Math.min(worldH - halfH, camY));
         // If canvas is larger than world, center it
-        if (canvas.width >= WORLD_W) camX = WORLD_W / 2;
-        if (canvas.height >= WORLD_H) camY = WORLD_H / 2;
+        if (canvas.width >= worldW) camX = worldW / 2;
+        if (canvas.height >= worldH) camY = worldH / 2;
 
         // Camera shake
         if (camShakeIntensity > 0) {
@@ -1006,33 +1059,105 @@
 
     // ── MAP INTEGRATION START ──
     function drawMap() {
-        // Draw the spaceship map image as the base layer
+        // Draw the correct map image based on the local player's current map
         const s = worldToScreen(0, 0);
-        if (mapBgImage.complete && mapBgImage.naturalWidth > 0) {
-            ctx.drawImage(mapBgImage, s.x, s.y, WORLD_W, WORLD_H);
+
+        if (myCurrentMap === 'planet') {
+            // Draw planet map
+            if (planetBgImage.complete && planetBgImage.naturalWidth > 0) {
+                ctx.drawImage(planetBgImage, s.x, s.y, PLANET_W, PLANET_H);
+            } else {
+                // Fallback: draw a colored background for the planet
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(s.x, s.y, PLANET_W, PLANET_H);
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.font = '24px Orbitron';
+                ctx.textAlign = 'center';
+                ctx.fillText('PLANET SURFACE', s.x + PLANET_W / 2, s.y + PLANET_H / 2);
+            }
+        } else {
+            // Draw spaceship map
+            if (mapBgImage.complete && mapBgImage.naturalWidth > 0) {
+                ctx.drawImage(mapBgImage, s.x, s.y, WORLD_W, WORLD_H);
+            }
+        }
+
+        // Draw transition zone indicator (glowing portal effect)
+        if (myCurrentMap === 'ship') {
+            // Ship exit zone indicator at engine room bottom
+            const exitX = 430 * MAP_SCALE;
+            const exitY = 960 * MAP_SCALE;
+            const exitW = 164 * MAP_SCALE;
+            const exitH = 30 * MAP_SCALE;
+            const es = worldToScreen(exitX, exitY);
+            const time = performance.now() / 1000;
+            const pulse = Math.sin(time * 3) * 0.3 + 0.5;
+
+            ctx.save();
+            ctx.fillStyle = `rgba(244, 162, 97, ${pulse * 0.3})`;
+            ctx.fillRect(es.x, es.y, exitW, exitH);
+            ctx.strokeStyle = `rgba(244, 162, 97, ${pulse * 0.8})`;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(es.x, es.y, exitW, exitH);
+            ctx.fillStyle = `rgba(244, 162, 97, ${pulse})`;
+            ctx.font = '12px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText('▼ EXIT TO PLANET ▼', es.x + exitW / 2, es.y + exitH / 2 + 4);
+            ctx.restore();
+        } else if (myCurrentMap === 'planet') {
+            // Planet exit zone indicator at top edge
+            const exitX = 680 * MAP_SCALE;
+            const exitY = 10 * MAP_SCALE;
+            const exitW = 180 * MAP_SCALE;
+            const exitH = 30 * MAP_SCALE;
+            const es = worldToScreen(exitX, exitY);
+            const time = performance.now() / 1000;
+            const pulse = Math.sin(time * 3) * 0.3 + 0.5;
+
+            ctx.save();
+            ctx.fillStyle = `rgba(76, 201, 240, ${pulse * 0.3})`;
+            ctx.fillRect(es.x, es.y, exitW, exitH);
+            ctx.strokeStyle = `rgba(76, 201, 240, ${pulse * 0.8})`;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(es.x, es.y, exitW, exitH);
+            ctx.fillStyle = `rgba(76, 201, 240, ${pulse})`;
+            ctx.font = '12px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText('▲ RETURN TO SHIP ▲', es.x + exitW / 2, es.y + exitH / 2 + 4);
+            ctx.restore();
         }
 
         // Debug overlay (toggled with F3 key)
         if (debugMode) {
             ctx.save();
+            const activeZones = myCurrentMap === 'planet' ? [
+                { id: 'planet_north', x: 180 * MAP_SCALE, y: 10 * MAP_SCALE, w: 750 * MAP_SCALE, h: 290 * MAP_SCALE },
+                { id: 'planet_center', x: 50 * MAP_SCALE, y: 300 * MAP_SCALE, w: 1440 * MAP_SCALE, h: 400 * MAP_SCALE },
+                { id: 'planet_south', x: 200 * MAP_SCALE, y: 700 * MAP_SCALE, w: 1100 * MAP_SCALE, h: 300 * MAP_SCALE },
+                { id: 'planet_pipe_left', x: 0, y: 350 * MAP_SCALE, w: 180 * MAP_SCALE, h: 100 * MAP_SCALE },
+                { id: 'planet_pipe_right', x: 1350 * MAP_SCALE, y: 350 * MAP_SCALE, w: 186 * MAP_SCALE, h: 100 * MAP_SCALE },
+                { id: 'planet_base', x: 500 * MAP_SCALE, y: 750 * MAP_SCALE, w: 540 * MAP_SCALE, h: 250 * MAP_SCALE },
+                { id: 'planet_entry', x: 680 * MAP_SCALE, y: 950 * MAP_SCALE, w: 180 * MAP_SCALE, h: 74 * MAP_SCALE },
+            ] : MAP_ZONES;
+            const activeObs = myCurrentMap === 'planet' ? PLANET_OBSTACLES : OBSTACLES;
+
             // Draw walkable zones (green outlines)
-            for (const zone of MAP_ZONES) {
+            for (const zone of activeZones) {
                 const zs = worldToScreen(zone.x, zone.y);
                 ctx.fillStyle = 'rgba(0,255,0,0.08)';
                 ctx.fillRect(zs.x, zs.y, zone.w, zone.h);
                 ctx.strokeStyle = 'rgba(0,255,0,0.6)';
                 ctx.lineWidth = 1;
                 ctx.strokeRect(zs.x, zs.y, zone.w, zone.h);
-                // Zone label
-                if (zone.label) {
+                if (zone.id || zone.label) {
                     ctx.fillStyle = 'rgba(0,255,0,0.7)';
                     ctx.font = '9px monospace';
                     ctx.textAlign = 'left';
-                    ctx.fillText(zone.label, zs.x + 3, zs.y + 11);
+                    ctx.fillText(zone.id || zone.label, zs.x + 3, zs.y + 11);
                 }
             }
             // Draw obstacles (red outlines)
-            for (const obs of OBSTACLES) {
+            for (const obs of activeObs) {
                 if (obs.type === 'rect') {
                     const os = worldToScreen(obs.x, obs.y);
                     ctx.fillStyle = 'rgba(255,0,0,0.1)';
@@ -1055,14 +1180,14 @@
             ctx.fillStyle = '#00ff00';
             ctx.font = '12px monospace';
             ctx.textAlign = 'left';
-            ctx.fillText('DEBUG MODE (F3)', 10, canvas.height - 10);
+            ctx.fillText(`DEBUG MODE (F3) — Map: ${myCurrentMap.toUpperCase()}`, 10, canvas.height - 10);
             ctx.restore();
         }
     }
     // ── MAP INTEGRATION END ──
 
     function drawObjective() {
-        if (!gameState.objective) return;
+        if (!gameState.objective || myCurrentMap !== 'ship') return;
         const obj = gameState.objective;
         const s = worldToScreen(obj.x, obj.y);
         const time = performance.now() / 1000;
@@ -1129,6 +1254,9 @@
         if (!gameState) return;
 
         for (const p of gameState.players) {
+            const pMap = p.currentMap || 'ship';
+            if (pMap !== myCurrentMap) continue;
+
             const s = worldToScreen(p.x, p.y);
             const color = ROLE_COLORS[p.role] || '#fff';
             const isMe = p.id === myId;
@@ -1499,7 +1627,7 @@
     }
 
     function drawEnemies() {
-        if (!gameState) return;
+        if (!gameState || myCurrentMap !== 'ship') return;
         for (const e of gameState.enemies) {
             const s = worldToScreen(e.x, e.y);
             const isElite = e.type === 'elite';
@@ -1578,6 +1706,7 @@
     }
 
     function drawBoss() {
+        if (myCurrentMap !== 'ship') return;
         const boss = gameState.boss;
         const s = worldToScreen(boss.x, boss.y);
         const time = performance.now() / 1000;
@@ -1672,7 +1801,7 @@
     }
 
     function drawProjectiles() {
-        if (!gameState) return;
+        if (!gameState || myCurrentMap !== 'ship') return;
         for (const p of gameState.projectiles) {
             const s = worldToScreen(p.x, p.y);
             const angle = Math.atan2(p.vy || 0, p.vx || 0);
@@ -1715,7 +1844,7 @@
     }
 
     function drawTurrets() {
-        if (!gameState || !gameState.turrets) return;
+        if (!gameState || !gameState.turrets || myCurrentMap !== 'ship') return;
         for (const t of gameState.turrets) {
             const s = worldToScreen(t.x, t.y);
             ctx.fillStyle = '#f4a261';
@@ -1781,30 +1910,35 @@
         const isScout = me?.role === 'scout';
 
         // Enemies (Scout sees all, others see nearby)
-        for (const e of gameState.enemies) {
-            if (!isScout && me) {
-                const d = Math.sqrt((me.x - e.x) ** 2 + (me.y - e.y) ** 2);
-                if (d > 400) continue;
+        if (myCurrentMap === 'ship') {
+            for (const e of gameState.enemies) {
+                if (!isScout && me) {
+                    const d = Math.sqrt((me.x - e.x) ** 2 + (me.y - e.y) ** 2);
+                    if (d > 400) continue;
+                }
+                ctx.fillStyle = e.type === 'elite' ? '#ff6b6b' : '#e63946';
+                ctx.fillRect(mmX + e.x * scale - 1, mmY + e.y * scale - 1, 2, 2);
             }
-            ctx.fillStyle = e.type === 'elite' ? '#ff6b6b' : '#e63946';
-            ctx.fillRect(mmX + e.x * scale - 1, mmY + e.y * scale - 1, 2, 2);
+
+            // Boss
+            if (gameState.boss) {
+                ctx.fillStyle = '#7b2cbf';
+                ctx.fillRect(mmX + gameState.boss.x * scale - 3, mmY + gameState.boss.y * scale - 3, 6, 6);
+            }
+
+            // Objective
+            if (gameState.objective) {
+                ctx.fillStyle = '#ffd166';
+                ctx.fillRect(mmX + gameState.objective.x * scale - 2, mmY + gameState.objective.y * scale - 2, 4, 4);
+            }
         }
 
-        // Boss
-        if (gameState.boss) {
-            ctx.fillStyle = '#7b2cbf';
-            ctx.fillRect(mmX + gameState.boss.x * scale - 3, mmY + gameState.boss.y * scale - 3, 6, 6);
-        }
-
-        // Objective
-        if (gameState.objective) {
-            ctx.fillStyle = '#ffd166';
-            ctx.fillRect(mmX + gameState.objective.x * scale - 2, mmY + gameState.objective.y * scale - 2, 4, 4);
-        }
-
-        // Players
+        // Players (only show on current map)
         for (const p of gameState.players) {
             if (!p.alive) continue;
+            const pMap = p.currentMap || 'ship';
+            if (pMap !== myCurrentMap) continue;
+
             ctx.fillStyle = ROLE_COLORS[p.role] || '#fff';
             ctx.fillRect(mmX + p.x * scale - 2, mmY + p.y * scale - 2, 4, 4);
         }

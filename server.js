@@ -118,6 +118,86 @@ try {
 } catch (e) {
     console.error("Failed to load or parse ship_collisions.json.", e);
 }
+
+// ── PLANET MAP INTEGRATION START ──
+// Walkable zone rectangles for the 1536x1024 planet exterior map
+const PLANET_MAP_ZONES = [
+    // Main open area (large walkable terrain)
+    { id: 'planet_north', x: 180, y: 10, w: 750, h: 290 },
+    { id: 'planet_center', x: 50, y: 300, w: 1440, h: 400 },
+    { id: 'planet_south', x: 200, y: 700, w: 1100, h: 300 },
+    // Pipe corridors
+    { id: 'planet_pipe_left', x: 0, y: 350, w: 180, h: 100 },
+    { id: 'planet_pipe_right', x: 1350, y: 350, w: 186, h: 100 },
+    // Base area (buildings at bottom)
+    { id: 'planet_base', x: 500, y: 750, w: 540, h: 250 },
+    // Entry zone (where players arrive from ship)
+    { id: 'planet_entry', x: 680, y: 950, w: 180, h: 74 },
+];
+
+const PLANET_OBSTACLES = [];
+try {
+    const rawPlanetData = fs.readFileSync(path.join(__dirname, 'public', 'assets', 'planet_collisions.json'));
+    const planetData = JSON.parse(rawPlanetData);
+    const planetCollisionLayer = planetData.layers.find(layer => layer.name === 'collisions');
+
+    if (planetCollisionLayer && planetCollisionLayer.objects) {
+        planetCollisionLayer.objects.forEach(obj => {
+            // Handle rectangles (with or without rotation)
+            if (obj.width > 0 && obj.height > 0) {
+                let aabbX = obj.x;
+                let aabbY = obj.y;
+                let aabbW = obj.width;
+                let aabbH = obj.height;
+
+                if (obj.rotation) {
+                    const rad = obj.rotation * (Math.PI / 180);
+                    const cos = Math.cos(rad);
+                    const sin = Math.sin(rad);
+                    const c1 = { x: 0, y: 0 };
+                    const c2 = { x: obj.width * cos, y: obj.width * sin };
+                    const c3 = { x: -obj.height * sin, y: obj.height * cos };
+                    const c4 = { x: obj.width * cos - obj.height * sin, y: obj.width * sin + obj.height * cos };
+                    const minX = Math.min(c1.x, c2.x, c3.x, c4.x);
+                    const maxX = Math.max(c1.x, c2.x, c3.x, c4.x);
+                    const minY = Math.min(c1.y, c2.y, c3.y, c4.y);
+                    const maxY = Math.max(c1.y, c2.y, c3.y, c4.y);
+                    aabbX = obj.x + minX;
+                    aabbY = obj.y + minY;
+                    aabbW = maxX - minX;
+                    aabbH = maxY - minY;
+                }
+
+                // Handle ellipses as bounding box rects
+                if (obj.ellipse) {
+                    PLANET_OBSTACLES.push({ type: 'circle', x: aabbX + aabbW / 2, y: aabbY + aabbH / 2, r: Math.max(aabbW, aabbH) / 2 });
+                } else {
+                    PLANET_OBSTACLES.push({ type: 'rect', x: aabbX, y: aabbY, w: aabbW, h: aabbH });
+                }
+            }
+            // Handle polygons - compute bounding box
+            if (obj.polygon && obj.polygon.length > 2) {
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                obj.polygon.forEach(p => {
+                    const px = obj.x + p.x;
+                    const py = obj.y + p.y;
+                    if (px < minX) minX = px;
+                    if (py < minY) minY = py;
+                    if (px > maxX) maxX = px;
+                    if (py > maxY) maxY = py;
+                });
+                const w = maxX - minX;
+                const h = maxY - minY;
+                if (w > 5 && h > 5) {
+                    PLANET_OBSTACLES.push({ type: 'rect', x: minX, y: minY, w: w, h: h });
+                }
+            }
+        });
+    }
+} catch (e) {
+    console.error("Failed to load or parse planet_collisions.json.", e);
+}
+// ── PLANET MAP INTEGRATION END ──
 // ── MAP INTEGRATION END ──
 
 // ── MAP SCALE: multiply all coordinates for large Minecraft-like world ──
@@ -125,11 +205,29 @@ const MAP_SCALE = 3;
 MAP_ZONES.forEach(z => { z.x *= MAP_SCALE; z.y *= MAP_SCALE; z.w *= MAP_SCALE; z.h *= MAP_SCALE; });
 OBSTACLES.forEach(o => { o.x *= MAP_SCALE; o.y *= MAP_SCALE; if (o.w) o.w *= MAP_SCALE; if (o.h) o.h *= MAP_SCALE; if (o.r) o.r *= MAP_SCALE; });
 
+// Scale planet map data
+const PLANET_SCALE = 3;
+PLANET_MAP_ZONES.forEach(z => { z.x *= PLANET_SCALE; z.y *= PLANET_SCALE; z.w *= PLANET_SCALE; z.h *= PLANET_SCALE; });
+PLANET_OBSTACLES.forEach(o => { o.x *= PLANET_SCALE; o.y *= PLANET_SCALE; if (o.w) o.w *= PLANET_SCALE; if (o.h) o.h *= PLANET_SCALE; if (o.r) o.r *= PLANET_SCALE; });
+
+const PLANET_W = 1536 * PLANET_SCALE;
+const PLANET_H = 1024 * PLANET_SCALE;
+
+// ── MAP TRANSITION ZONES ──
+// Ship engine room bottom edge -> Planet entry
+const SHIP_EXIT_ZONE = { x: 430 * MAP_SCALE, y: 960 * MAP_SCALE, w: 164 * MAP_SCALE, h: 30 * MAP_SCALE };
+// Planet entry -> back to ship
+const PLANET_EXIT_ZONE = { x: 680 * PLANET_SCALE, y: 10 * PLANET_SCALE, w: 180 * PLANET_SCALE, h: 30 * PLANET_SCALE };
+// Spawn positions when entering planet
+const PLANET_SPAWN = { x: 768 * PLANET_SCALE, y: 500 * PLANET_SCALE };
+// Spawn positions when returning to ship
+const SHIP_RETURN_SPAWN = { x: 512 * MAP_SCALE, y: 900 * MAP_SCALE };
+
 const OBJECTIVES = [
-    { phase: 'objective1', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, repairTime: 12, desc: 'Stabilize Core System', zone: 'cockpit_room' },
-    { phase: 'objective2', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 10, desc: 'Restore Left Power Grid', zone: 'left_3' },
-    { phase: 'objective3', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 15, desc: 'Restore Right Power Grid', zone: 'right_3' },
-    { phase: 'final', x: 512 * MAP_SCALE, y: 870 * MAP_SCALE, repairTime: 8, desc: 'Activate Engine Core', zone: 'engine' }
+    { phase: 'objective1', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, repairTime: 12, desc: 'Stabilize Core System', zone: 'cockpit_room', map: 'ship' },
+    { phase: 'objective2', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 10, desc: 'Restore Left Power Grid', zone: 'left_3', map: 'ship' },
+    { phase: 'objective3', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 15, desc: 'Restore Right Power Grid', zone: 'right_3', map: 'ship' },
+    { phase: 'final', x: 512 * MAP_SCALE, y: 870 * MAP_SCALE, repairTime: 8, desc: 'Activate Engine Core', zone: 'engine', map: 'ship' }
 ];
 
 const SPAWN_POINTS = {
@@ -419,7 +517,8 @@ function createGameState(room) {
             input: { w: false, a: false, s: false, d: false, mouseX: 0, mouseY: 0, attack: false, interact: false, ability: false },
             score: { damageDealt: 0, healingDone: 0, enemiesKilled: 0, repairsDone: 0 },
             combatTimer: 0,
-            speed: role.speed
+            speed: role.speed,
+            currentMap: 'ship' // 'ship' or 'planet'
         });
         i++;
     }
@@ -531,6 +630,29 @@ function updatePlayer(gs, player) {
         player.x += dx * speed * DT;
         player.y += dy * speed * DT;
         constrainToMap(gs, player);
+
+        // ── MAP TRANSITION CHECK ──
+        if (player.currentMap === 'ship') {
+            // Check if player entered ship exit zone (engine room bottom)
+            if (player.x > SHIP_EXIT_ZONE.x && player.x < SHIP_EXIT_ZONE.x + SHIP_EXIT_ZONE.w &&
+                player.y > SHIP_EXIT_ZONE.y && player.y < SHIP_EXIT_ZONE.y + SHIP_EXIT_ZONE.h) {
+                player.currentMap = 'planet';
+                player.x = PLANET_SPAWN.x;
+                player.y = PLANET_SPAWN.y;
+                gs.events.push({ type: 'announcement', text: 'ENTERING PLANET SURFACE', duration: 2, color: '#f4a261' });
+                gs.events.push({ type: 'mapChange', playerId: player.id, map: 'planet' });
+            }
+        } else if (player.currentMap === 'planet') {
+            // Check if player entered planet exit zone (top edge)
+            if (player.x > PLANET_EXIT_ZONE.x && player.x < PLANET_EXIT_ZONE.x + PLANET_EXIT_ZONE.w &&
+                player.y > PLANET_EXIT_ZONE.y && player.y < PLANET_EXIT_ZONE.y + PLANET_EXIT_ZONE.h) {
+                player.currentMap = 'ship';
+                player.x = SHIP_RETURN_SPAWN.x;
+                player.y = SHIP_RETURN_SPAWN.y;
+                gs.events.push({ type: 'announcement', text: 'RETURNING TO SHIP', duration: 2, color: '#4cc9f0' });
+                gs.events.push({ type: 'mapChange', playerId: player.id, map: 'ship' });
+            }
+        }
     }
 
     // Combat timer
@@ -1149,11 +1271,14 @@ function angleDiff(a, b) {
 }
 
 function constrainToMap(gs, entity, r = PLAYER_RADIUS) {
+    // Determine which map's zones and obstacles to use
+    const activeZones = entity.currentMap === 'planet' ? PLANET_MAP_ZONES : MAP_ZONES;
+    const activeObstacles = entity.currentMap === 'planet' ? PLANET_OBSTACLES : OBSTACLES;
     let valid = false;
 
     // ── MAP INTEGRATION START ──
     // Step 1: Must be inside at least one walkable zone
-    for (const zone of MAP_ZONES) {
+    for (const zone of activeZones) {
         if (entity.x + r > zone.x && entity.x - r < zone.x + zone.w &&
             entity.y + r > zone.y && entity.y - r < zone.y + zone.h) {
             valid = true;
@@ -1164,7 +1289,7 @@ function constrainToMap(gs, entity, r = PLAYER_RADIUS) {
     if (!valid) {
         // Push back into nearest valid zone
         let bestZone = null, bestDist = Infinity;
-        for (const zone of MAP_ZONES) {
+        for (const zone of activeZones) {
             const cx = Math.max(zone.x + r, Math.min(zone.x + zone.w - r, entity.x));
             const cy = Math.max(zone.y + r, Math.min(zone.y + zone.h - r, entity.y));
             const d = distance(entity, { x: cx, y: cy });
@@ -1177,7 +1302,7 @@ function constrainToMap(gs, entity, r = PLAYER_RADIUS) {
     }
 
     // Step 2: Push out of obstacles (equipment blocks + engine circles)
-    for (const obs of OBSTACLES) {
+    for (const obs of activeObstacles) {
         if (obs.type === 'rect') {
             const closestX = Math.max(obs.x, Math.min(obs.x + obs.w, entity.x));
             const closestY = Math.max(obs.y, Math.min(obs.y + obs.h, entity.y));
@@ -1264,7 +1389,8 @@ function broadcastState(room) {
             alive: p.alive, respawnTimer: Math.round(p.respawnTimer * 10) / 10,
             abilityActive: p.abilityActive,
             abilityCd: Math.round(p.abilityCd * 10) / 10,
-            score: p.score
+            score: p.score,
+            currentMap: p.currentMap || 'ship'
         });
     }
 
