@@ -18,7 +18,7 @@ const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
 const DT = TICK_MS / 1000;
 const MISSION_DURATION = 600;
-const MIN_PLAYERS = 2;
+const MIN_PLAYERS = 1;
 const MAX_PLAYERS = 4;
 const PLAYER_RADIUS = 18;
 const ENEMY_RADIUS = 16;
@@ -125,7 +125,7 @@ function canStartGame(room) {
     const usedRoles = new Set();
     for (const [, p] of room.players) {
         if (!p.role) allReady = false;
-        if (!p.isHost && !p.ready) allReady = false;
+        if (p.ws !== room.host && !p.ready) allReady = false;
         if (p.role) {
             if (usedRoles.has(p.role)) return false;
             usedRoles.add(p.role);

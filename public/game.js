@@ -64,10 +64,11 @@
         });
     }
 
-    // ======================== VANGUARD SPRITES ========================
+    // ======================== CHARACTER SPRITES ========================
     const DIRS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+    const ROLES_LIST = ['vanguard', 'engineer', 'scout', 'medic'];
     const SPRITE_SCALE = 3; // scale up pixel art
-    const vanguardSprites = { idle: {}, walk: {}, death: {}, sword: {} };
+    const roleSprites = {};
     let spritesLoaded = 0;
     let totalSprites = 0;
 
@@ -76,33 +77,38 @@
         const img = new Image();
         img.src = src;
         img.onload = () => spritesLoaded++;
+        img.onerror = () => { console.warn('Missing sprite:', src); spritesLoaded++; }; // gracefully handle missing frames
         return img;
     }
 
-    // Idle rotations
-    DIRS.forEach(dir => {
-        vanguardSprites.idle[dir] = loadImg(`/assets/vanguard/rotations/${dir}.png`);
+    ROLES_LIST.forEach(role => {
+        roleSprites[role] = { idle: {}, walk: {}, death: {}, sword: {} };
+
+        // Idle rotations
+        DIRS.forEach(dir => {
+            roleSprites[role].idle[dir] = loadImg(`/assets/${role}/rotations/${dir}.png`);
+        });
+
+        // Walk animation (6 frames per direction)
+        DIRS.forEach(dir => {
+            roleSprites[role].walk[dir] = [];
+            for (let i = 0; i < 6; i++) {
+                roleSprites[role].walk[dir].push(loadImg(`/assets/${role}/animations/walk/${dir}/frame_${String(i).padStart(3, '0')}.png`));
+            }
+        });
+
+        // Death animation (7 frames)
+        DIRS.forEach(dir => {
+            roleSprites[role].death[dir] = [];
+            for (let i = 0; i < 7; i++) {
+                roleSprites[role].death[dir].push(loadImg(`/assets/${role}/animations/falling-back-death/${dir}/frame_${String(i).padStart(3, '0')}.png`));
+            }
+        });
     });
 
-    // Walk animation (6 frames per direction)
+    // Sword (Vanguard only)
     DIRS.forEach(dir => {
-        vanguardSprites.walk[dir] = [];
-        for (let i = 0; i < 6; i++) {
-            vanguardSprites.walk[dir].push(loadImg(`/assets/vanguard/animations/walk/${dir}/frame_${String(i).padStart(3, '0')}.png`));
-        }
-    });
-
-    // Death animation (7 frames per direction)
-    DIRS.forEach(dir => {
-        vanguardSprites.death[dir] = [];
-        for (let i = 0; i < 7; i++) {
-            vanguardSprites.death[dir].push(loadImg(`/assets/vanguard/animations/falling-back-death/${dir}/frame_${String(i).padStart(3, '0')}.png`));
-        }
-    });
-
-    // Sword rotations
-    DIRS.forEach(dir => {
-        vanguardSprites.sword[dir] = loadImg(`/assets/sword-vanguard/rotations/${dir}.png`);
+        roleSprites.vanguard.sword[dir] = loadImg(`/assets/sword-vanguard/rotations/${dir}.png`);
     });
 
     // Per-player animation tracking
@@ -723,7 +729,8 @@
                     // Play death animation
                     const anim = getAnimState(p.id);
                     const dir = anim.lastDir || 'south';
-                    const frames = vanguardSprites.death[dir];
+                    const role = p.role || 'vanguard';
+                    const frames = roleSprites[role]?.death?.[dir];
                     if (frames && frames.length > 0) {
                         if (!anim.deathDone) {
                             anim.deathTimer += 0.016; // ~60fps
@@ -905,20 +912,23 @@
         anim.deathTimer = 0;
         anim.deathDone = false;
 
+        const role = p.role || 'vanguard';
+        const sprites = roleSprites[role] || roleSprites.vanguard;
+
         let sprite;
-        if (isMoving && vanguardSprites.walk[dir]) {
+        if (isMoving && sprites.walk[dir]) {
             // Animate walk at 10fps
             anim.walkTimer += dt;
             if (anim.walkTimer >= 0.1) {
                 anim.walkTimer = 0;
                 anim.walkFrame = (anim.walkFrame + 1) % 6;
             }
-            sprite = vanguardSprites.walk[dir][anim.walkFrame];
+            sprite = sprites.walk[dir][anim.walkFrame];
         } else {
             // Idle
             anim.walkFrame = 0;
             anim.walkTimer = 0;
-            sprite = vanguardSprites.idle[dir];
+            sprite = sprites.idle[dir];
         }
 
         // Draw the character sprite
@@ -936,8 +946,8 @@
             drawHexagon(s.x, s.y, 18);
         }
 
-        // Draw sword sprite — always visible, smaller, with tilt
-        const swordSprite = vanguardSprites.sword[dir];
+        // Draw sword sprite — vanguard only
+        const swordSprite = p.role === 'vanguard' ? roleSprites.vanguard.sword[dir] : null;
         if (swordSprite && swordSprite.complete && swordSprite.naturalWidth > 0) {
             const SWORD_SCALE = 2; // smaller than character
             const swordOffsetDist = 20;
