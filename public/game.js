@@ -95,6 +95,7 @@
     // Input
     const keys = { w: false, a: false, s: false, d: false };
     let mouseX = 0, mouseY = 0;
+    let mouseMoved = false;
     let mouseDown = false;
     let interacting = false;
     let abilityPressed = false;
@@ -176,16 +177,38 @@
         roleSprites.vanguard.sword[dir] = loadImg(`/assets/sword-vanguard/rotations/${dir}.png`);
     });
 
+    // Weapon sprites for other roles
+    const spearImg = loadImg('/assets/spear.png');
+    const gunImg = loadImg('/assets/gun.png');
+    const medboxImg = loadImg('/assets/medbox.png');
+    const bulletImg = loadImg('/assets/bullets.png');
+
+    // Dog enemy sprite frames
+    const dogSprites = { idle: [], walk: [], attack: [], death: [] };
+    for (let i = 0; i < 8; i++) dogSprites.idle.push(loadImg(`/assets/dog/idle/frame_${String(i).padStart(3, '0')}.png`));
+    for (let i = 0; i < 12; i++) dogSprites.walk.push(loadImg(`/assets/dog/walk/frame_${String(i).padStart(3, '0')}.png`));
+    for (let i = 0; i < 8; i++) dogSprites.attack.push(loadImg(`/assets/dog/attack/frame_${String(i).padStart(3, '0')}.png`));
+    for (let i = 0; i < 5; i++) dogSprites.death.push(loadImg(`/assets/dog/death/frame_${String(i).padStart(3, '0')}.png`));
+
+    // Enemy animation state tracking
+    const enemyAnimState = {};
+    function getEnemyAnim(id) {
+        if (!enemyAnimState[id]) {
+            enemyAnimState[id] = { frame: 0, timer: 0, prevX: 0, prevY: 0 };
+        }
+        return enemyAnimState[id];
+    }
+
     // Per-player animation tracking
     const playerAnimState = {};
     function getAnimState(id) {
         if (!playerAnimState[id]) {
-            playerAnimState[id] = { walkFrame: 0, walkTimer: 0, deathFrame: 0, deathTimer: 0, deathDone: false, prevX: 0, prevY: 0 };
+            playerAnimState[id] = { walkFrame: 0, walkTimer: 0, deathFrame: 0, deathTimer: 0, deathDone: false, prevX: 0, prevY: 0, spearThrown: 0 };
         }
         return playerAnimState[id];
     }
 
-    // Convert angle to 8-direction name
+    // convert angle to 8-direction name
     function angleToDir(angle) {
         // angle is in radians, 0 = east
         const deg = ((angle * 180 / Math.PI) + 360) % 360;
@@ -197,6 +220,233 @@
         if (deg >= 202.5 && deg < 247.5) return 'north-west';
         if (deg >= 247.5 && deg < 292.5) return 'north';
         return 'north-east';
+    }
+
+    // ======================== VOICE CHAT (WEBRTC) ========================
+    let localStream = null;
+    let selectedAudioDeviceId = null;
+    let speakerEnabled = false;
+    const peerConnections = {};
+    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    // State per peer for Perfect Negotiation
+    const pcStates = {}; // peerId -> { makingOffer: false }
+
+    async function toggleSpeaker(forceState) {
+        if (forceState !== undefined) speakerEnabled = forceState;
+        else speakerEnabled = !speakerEnabled;
+
+        const btn = document.getElementById('speakerBtn');
+        if (!btn) return;
+
+        if (speakerEnabled) {
+            btn.textContent = 'SPEAKER ON';
+            btn.style.background = 'rgba(6, 214, 160, 0.2)';
+            btn.style.borderColor = 'rgba(6, 214, 160, 0.5)';
+            btn.style.color = '#06d6a0';
+
+            document.querySelectorAll('audio').forEach(el => el.muted = false);
+
+            const speakerSelect = document.getElementById('speakerSelect');
+            if (speakerSelect && navigator.mediaDevices.enumerateDevices) {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+                    if (audioOutputs.length > 0) {
+                        speakerSelect.innerHTML = audioOutputs.map((d, i) =>
+                            `<option value="${d.deviceId}">${d.label || 'Speaker ' + (i + 1)}</option>`
+                        ).join('');
+                        speakerSelect.style.display = 'inline-block';
+                        speakerSelect.onchange = () => {
+                            selectedAudioDeviceId = speakerSelect.value;
+                            document.querySelectorAll('audio').forEach(el => {
+                                if (typeof el.setSinkId === 'function') {
+                                    el.setSinkId(selectedAudioDeviceId).catch(e => console.warn("Sink update failed:", e));
+                                }
+                            });
+                        };
+                        selectedAudioDeviceId = speakerSelect.value;
+                    }
+                } catch (e) {
+                    console.warn(e);
+                }
+            }
+        } else {
+            btn.textContent = 'SPEAKER OFF';
+            btn.style.background = 'rgba(230, 57, 70, 0.2)';
+            btn.style.borderColor = 'rgba(230, 57, 70, 0.5)';
+            btn.style.color = '#e63946';
+
+            document.querySelectorAll('audio').forEach(el => el.muted = true);
+
+            const speakerSelect = document.getElementById('speakerSelect');
+            if (speakerSelect) speakerSelect.style.display = 'none';
+            selectedAudioDeviceId = null;
+        }
+    }
+
+    async function toggleMic() {
+        const btn = document.getElementById('micBtn');
+        if (localStream) {
+            // Disable Mic
+            localStream.getTracks().forEach(t => t.stop());
+            localStream = null;
+
+            // Remove tracks instead of closing the connection so Speaker can keep listening!
+            Object.values(peerConnections).forEach(pc => {
+                const senders = pc.getSenders();
+                senders.forEach(s => {
+                    if (s.track && s.track.kind === 'audio') {
+                        pc.removeTrack(s);
+                    }
+                });
+            });
+
+            btn.textContent = 'MIC OFF';
+            btn.style.background = 'rgba(230, 57, 70, 0.2)';
+            btn.style.borderColor = 'rgba(230, 57, 70, 0.5)';
+            btn.style.color = '#e63946';
+            return;
+        }
+
+        try {
+            // Get Mic Access
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+
+            btn.textContent = 'MIC ON (LIVE)';
+            btn.style.background = 'rgba(6, 214, 160, 0.2)';
+            btn.style.borderColor = 'rgba(6, 214, 160, 0.5)';
+            btn.style.color = '#06d6a0';
+
+            // Add local track to any existing peer connections right away (this triggers onnegotiationneeded automatically!)
+            Object.keys(peerConnections).forEach(pidStr => {
+                const pid = parseInt(pidStr);
+                const pc = peerConnections[pid];
+                const hasTrack = pc.getSenders().some(s => s.track && s.track.kind === 'audio');
+                if (!hasTrack && pc.signalingState !== 'closed') {
+                    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+                }
+            });
+
+            if (activePlayerIds.length > 0) {
+                connectToPeers(activePlayerIds);
+            }
+
+            // Refresh speaker dropdown labels if speaker is enabled without recursively flipping state
+            if (speakerEnabled) {
+                await toggleSpeaker(true);
+            }
+
+        } catch (e) {
+            console.warn("Mic access denied or error:", e);
+            if (!navigator.mediaDevices) {
+                showError("HTTPS or localhost required for microphone.");
+            } else if (e.name === "NotAllowedError" || e.name === "PermissionDeniedError") {
+                showError("Microphone permission blocked by browser.");
+            } else if (e.name === "NotFoundError" || e.name === "DevicesNotFoundError") {
+                showError("No microphone found.");
+            } else {
+                showError("Mic error: " + e.message);
+            }
+        }
+    }
+
+    function getPeerConnection(peerId) {
+        if (peerConnections[peerId]) return peerConnections[peerId];
+        const pc = new RTCPeerConnection(rtcConfig);
+        peerConnections[peerId] = pc;
+        pcStates[peerId] = { makingOffer: false };
+
+        if (localStream) {
+            localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+        }
+
+        pc.onnegotiationneeded = async () => {
+            try {
+                pcStates[peerId].makingOffer = true;
+                await pc.setLocalDescription();
+                if (ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: peerId, signalData: { offer: pc.localDescription } }));
+                }
+            } catch (err) {
+                console.warn("Negotiation error:", err);
+            } finally {
+                pcStates[peerId].makingOffer = false;
+            }
+        };
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate && ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: peerId, signalData: { candidate: e.candidate } }));
+            }
+        };
+        pc.ontrack = async (e) => {
+            let audioEl = document.getElementById('audio_' + peerId);
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.id = 'audio_' + peerId;
+                audioEl.autoplay = true;
+                audioEl.muted = !speakerEnabled; // ONLY audibly play if speaker is enabled
+
+                // Set the selected speaker device if chosen
+                if (selectedAudioDeviceId && typeof audioEl.setSinkId === 'function') {
+                    try {
+                        await audioEl.setSinkId(selectedAudioDeviceId);
+                    } catch (err) {
+                        console.warn("Failed to set speaker output", err);
+                    }
+                }
+
+                document.body.appendChild(audioEl);
+            }
+            audioEl.srcObject = e.streams[0];
+        };
+        return pc;
+    }
+
+    function connectToPeers(playerIds) {
+        for (const pid of playerIds) {
+            if (pid !== myId && !peerConnections[pid]) {
+                const pc = getPeerConnection(pid);
+                // Only the "smaller" ID establishes the initial polite mesh connection line to prevent simultaneous cross-firing glare
+                if (myId < pid) {
+                    pc.createDataChannel('gameData');
+                }
+            }
+        }
+    }
+
+    async function handleWebRTCSignal(msg) {
+        const senderId = msg.senderId;
+        const data = msg.signalData;
+        const pc = getPeerConnection(senderId);
+        const state = pcStates[senderId];
+
+        // Perfect Negotiation Pattern
+        const polite = myId > senderId; // Lower ID (Host usually) is impolite, Higher ID is polite
+
+        try {
+            if (data.offer) {
+                const offerCollision = (state.makingOffer || pc.signalingState !== "stable");
+                if (offerCollision) {
+                    if (!polite) return; // Impolite peer ignores the incoming offer and sticks to its own
+                    await Promise.all([
+                        pc.setLocalDescription({ type: "rollback" }),
+                        pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+                    ]);
+                } else {
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                }
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: senderId, signalData: { answer: pc.localDescription } }));
+            } else if (data.answer) {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            } else if (data.candidate) {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            }
+        } catch (e) {
+            console.warn("WebRTC error handling signal from", senderId, e);
+        }
     }
 
     // ======================== CANVAS SETUP ========================
@@ -224,7 +474,11 @@
     const hudAbility = document.getElementById('hudAbility');
     const hudAbilityCd = document.getElementById('hudAbilityCd');
 
+    let activePlayerIds = [];
+
     // ======================== LOBBY LOGIC ========================
+    document.getElementById('speakerBtn').onclick = () => toggleSpeaker();
+    document.getElementById('micBtn').onclick = () => toggleMic();
     document.getElementById('createBtn').onclick = () => {
         const name = document.getElementById('nameInput').value.trim();
         if (!name) return showError('Enter a Callsign');
@@ -256,6 +510,15 @@
         if (ws) ws.send(JSON.stringify({ type: 'ready' }));
     };
 
+    document.getElementById('copyCodeBtn').onclick = () => {
+        const code = document.getElementById('roomCodeDisplay').textContent;
+        navigator.clipboard.writeText(code).then(() => {
+            const btn = document.getElementById('copyCodeBtn');
+            btn.textContent = '✅';
+            setTimeout(() => { btn.textContent = '📋'; }, 1500);
+        });
+    };
+
     document.getElementById('startBtn').onclick = () => {
         if (ws) ws.send(JSON.stringify({ type: 'startGame' }));
     };
@@ -279,6 +542,8 @@
 
     function updateLobbyUI(data) {
         document.getElementById('roomCodeDisplay').textContent = data.roomCode;
+        activePlayerIds = data.players.map(p => p.id);
+        connectToPeers(activePlayerIds);
 
         const takenRoles = new Set();
         data.players.forEach(p => { if (p.role && p.id !== myId) takenRoles.add(p.role); });
@@ -314,6 +579,14 @@
 
     // ======================== WEBSOCKET ========================
     function connect(onOpen) {
+        if (ws) {
+            ws.onclose = null;
+            ws.close();
+            ws = null;
+            Object.values(peerConnections).forEach(pc => pc.close());
+            for (let key in peerConnections) delete peerConnections[key];
+        }
+
         const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
         ws = new WebSocket(`${protocol}://${location.host}`);
 
@@ -333,7 +606,7 @@
         };
 
         ws.onerror = () => {
-            showError('Connection failed');
+            showError('Connection failed. Server might be down!');
         };
     }
 
@@ -387,6 +660,10 @@
 
             case 'error':
                 showError(msg.message);
+                break;
+
+            case 'webrtc_signal':
+                handleWebRTCSignal(msg);
                 break;
         }
     }
@@ -447,7 +724,33 @@
             case 'announcement':
                 showAnnouncement(evt.text, evt.duration || 3, evt.color);
                 break;
+            case 'chat':
+                displayChatMessage(evt.name, evt.msg, evt.color);
+                break;
         }
+    }
+
+    function displayChatMessage(name, msg, color) {
+        const chatMessages = document.getElementById('chatMessages');
+        if (!chatMessages) return;
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'chat-message';
+        // Style name with color
+        msgDiv.innerHTML = `<span class="author" style="color:${color}">${name}:</span>${msg}`;
+
+        chatMessages.appendChild(msgDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll
+
+        // Fade out after 10s
+        setTimeout(() => {
+            msgDiv.classList.add('fade-out');
+            setTimeout(() => {
+                if (chatMessages.contains(msgDiv)) {
+                    chatMessages.removeChild(msgDiv);
+                }
+            }, 1000); // Wait for CSS transition
+        }, 10000);
     }
 
     function showAnnouncement(text, duration, color) {
@@ -470,9 +773,9 @@
             title.className = 'gameover-title victory';
             subtitle.textContent = `Transmission sent. Extraction incoming. Time remaining: ${Math.floor(msg.timeRemaining)}s`;
         } else {
-            title.textContent = 'MISSION FAILED';
+            title.textContent = 'GAME OVER';
             title.className = 'gameover-title defeat';
-            subtitle.textContent = 'The signal was never sent. The crew was lost.';
+            subtitle.textContent = 'All personnel lost. The signal was never sent.';
         }
 
         scoreboard.innerHTML = msg.scores.map((s, i) => `
@@ -490,8 +793,39 @@
 
     // ======================== INPUT ========================
     window.addEventListener('keydown', (e) => {
-        if (e.target.tagName === 'INPUT') return;
         const k = e.key.toLowerCase();
+
+        // Chat toggle
+        const chatInput = document.getElementById('chatInput');
+        if (chatInput && document.activeElement === chatInput) {
+            if (e.key === 'Enter') {
+                const text = chatInput.value.trim();
+                if (text.length > 0 && ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({ type: 'chat', msg: text }));
+                }
+                chatInput.value = '';
+                chatInput.blur();
+                chatInput.style.display = 'none';
+            } else if (e.key === 'Escape') {
+                chatInput.value = '';
+                chatInput.blur();
+                chatInput.style.display = 'none';
+            }
+            return; // Block movement keys while typing
+        }
+
+        // Open chat if not typing elsewhere
+        if (e.key === 'Enter' && screenPhase === 'game') {
+            if (chatInput) {
+                chatInput.style.display = 'block';
+                chatInput.focus();
+            }
+            e.preventDefault();
+            return;
+        }
+
+        if (e.target.tagName === 'INPUT') return;
+
         if (k === 'w') keys.w = true;
         if (k === 'a') keys.a = true;
         if (k === 's') keys.s = true;
@@ -514,7 +848,9 @@
         if (k === 'tab') { tabDown = false; e.preventDefault(); }
     });
 
-    canvas.addEventListener('mousemove', (e) => {
+    canvas.addEventListener('mousemove', e => {
+        mouseMoved = true;
+        const rect = canvas.getBoundingClientRect();
         mouseX = e.clientX;
         mouseY = e.clientY;
     });
@@ -617,8 +953,8 @@
 
         updateCamera(dt);
 
-        // Background (black void around ship)
-        ctx.fillStyle = '#000000';
+        // Background
+        ctx.fillStyle = '#030308';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // Draw distant stars
@@ -688,10 +1024,12 @@
                 ctx.lineWidth = 1;
                 ctx.strokeRect(zs.x, zs.y, zone.w, zone.h);
                 // Zone label
-                ctx.fillStyle = 'rgba(0,255,0,0.7)';
-                ctx.font = '9px monospace';
-                ctx.textAlign = 'left';
-                ctx.fillText(zone.id, zs.x + 3, zs.y + 11);
+                if (zone.label) {
+                    ctx.fillStyle = 'rgba(0,255,0,0.7)';
+                    ctx.font = '9px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(zone.label, zs.x + 3, zs.y + 11);
+                }
             }
             // Draw obstacles (red outlines)
             for (const obs of OBSTACLES) {
@@ -711,25 +1049,6 @@
                     ctx.strokeStyle = 'rgba(255,60,60,0.8)';
                     ctx.lineWidth = 1.5;
                     ctx.stroke();
-                }
-            }
-            // Draw doorway connection points (yellow dots at zone overlaps along corridor)
-            const corridorZone = MAP_ZONES.find(z => z.id === 'corridor');
-            if (corridorZone) {
-                const doorYs = [290, 370, 450, 530, 610, 690, 760];
-                for (const dy of doorYs) {
-                    // Left doorway
-                    const dl = worldToScreen(corridorZone.x, dy);
-                    ctx.fillStyle = '#ffdd00';
-                    ctx.beginPath();
-                    ctx.arc(dl.x, dl.y, 4, 0, Math.PI * 2);
-                    ctx.fill();
-                    // Right doorway
-                    const dr = worldToScreen(corridorZone.x + corridorZone.w, dy);
-                    ctx.fillStyle = '#ffdd00';
-                    ctx.beginPath();
-                    ctx.arc(dr.x, dr.y, 4, 0, Math.PI * 2);
-                    ctx.fill();
                 }
             }
             // Debug label
@@ -815,48 +1134,39 @@
             const isMe = p.id === myId;
 
             if (!p.alive) {
-                if (p.role === 'vanguard') {
-                    // Play death animation
-                    const anim = getAnimState(p.id);
-                    const dir = anim.lastDir || 'south';
-                    const role = p.role || 'vanguard';
-                    const frames = roleSprites[role]?.death?.[dir];
-                    if (frames && frames.length > 0) {
-                        if (!anim.deathDone) {
-                            anim.deathTimer += 0.016; // ~60fps
-                            if (anim.deathTimer >= 0.1) {
-                                anim.deathTimer = 0;
-                                if (anim.deathFrame < frames.length - 1) anim.deathFrame++;
-                                else anim.deathDone = true;
-                            }
-                        }
-                        const frame = frames[anim.deathFrame];
-                        if (frame && frame.complete && frame.naturalWidth > 0) {
-                            ctx.globalAlpha = 0.7;
-                            const sw = frame.naturalWidth * SPRITE_SCALE;
-                            const sh = frame.naturalHeight * SPRITE_SCALE;
-                            ctx.imageSmoothingEnabled = false;
-                            ctx.drawImage(frame, s.x - sw / 2, s.y - sh / 2, sw, sh);
-                            ctx.imageSmoothingEnabled = true;
-                            ctx.globalAlpha = 1;
+                // Play death animation for any role
+                const anim = getAnimState(p.id);
+                const dir = anim.lastDir || 'south';
+                const role = p.role || 'vanguard';
+                const frames = roleSprites[role]?.death?.[dir];
+                if (frames && frames.length > 0) {
+                    if (!anim.deathDone) {
+                        anim.deathTimer += 0.016; // ~60fps
+                        if (anim.deathTimer >= 0.1) {
+                            anim.deathTimer = 0;
+                            if (anim.deathFrame < frames.length - 1) anim.deathFrame++;
+                            else anim.deathDone = true;
                         }
                     }
-                    // Respawn timer
-                    if (p.respawnTimer > 0) {
-                        ctx.fillStyle = '#fff';
-                        ctx.font = '12px Orbitron';
-                        ctx.textAlign = 'center';
-                        ctx.fillText(p.respawnTimer.toFixed(1) + 's', s.x, s.y + 4);
+                    const frame = frames[anim.deathFrame];
+                    if (frame && frame.complete && frame.naturalWidth > 0) {
+                        ctx.globalAlpha = 0.7;
+                        const sw = frame.naturalWidth * SPRITE_SCALE;
+                        const sh = frame.naturalHeight * SPRITE_SCALE;
+                        ctx.imageSmoothingEnabled = false;
+                        ctx.drawImage(frame, s.x - sw / 2, s.y - sh / 2, sw, sh);
+                        ctx.imageSmoothingEnabled = true;
+                        ctx.globalAlpha = 1;
                     }
-                    continue;
+                } else {
+                    // Fallback ghost circle
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillStyle = '#666';
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, 14, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
                 }
-                // Ghost effect for other roles
-                ctx.globalAlpha = 0.3;
-                ctx.fillStyle = '#666';
-                ctx.beginPath();
-                ctx.arc(s.x, s.y, 14, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.globalAlpha = 1;
 
                 // Respawn timer
                 if (p.respawnTimer > 0) {
@@ -874,25 +1184,8 @@
                 ctx.shadowBlur = 20;
             }
 
-            // Draw role-specific shape
-            ctx.fillStyle = color;
-            ctx.strokeStyle = isMe ? '#fff' : 'rgba(255,255,255,0.3)';
-            ctx.lineWidth = isMe ? 2.5 : 1;
-
-            if (p.role === 'vanguard') {
-                drawVanguardSprite(p, s, isMe, dt);
-            } else {
-                switch (p.role) {
-                    case 'engineer': drawSquare(s.x, s.y, 16); break;
-                    case 'scout': drawDiamond(s.x, s.y, 18); break;
-                    case 'medic': drawCross(s.x, s.y, 16); break;
-                    default:
-                        ctx.beginPath();
-                        ctx.arc(s.x, s.y, 16, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.stroke();
-                }
-            }
+            // Draw character sprite for all roles
+            drawVanguardSprite(p, s, isMe, dt);
 
             ctx.shadowBlur = 0;
 
@@ -958,16 +1251,29 @@
         // Determine facing direction from mouse (if local) or movement
         let facingAngle;
         if (isMe) {
-            facingAngle = Math.atan2(
-                (mouseY + camY - canvas.height / 2) - p.y,
-                (mouseX + camX - canvas.width / 2) - p.x
-            );
+            if (mouseMoved) {
+                facingAngle = Math.atan2(
+                    (mouseY + camY - canvas.height / 2) - p.y,
+                    (mouseX + camX - canvas.width / 2) - p.x
+                );
+            } else {
+                const dxDelta = p.x - (anim.prevX || p.x);
+                const dyDelta = p.y - (anim.prevY || p.y);
+                if (Math.abs(dxDelta) > 0.1 || Math.abs(dyDelta) > 0.1) {
+                    facingAngle = Math.atan2(dyDelta, dxDelta);
+                } else {
+                    facingAngle = anim.lastAngle || 0; // Default right if completely idle initially
+                }
+            }
         } else {
+            // Remote player: detect from position changes with grace period
             const dx = p.x - (anim.prevX || p.x);
             const dy = p.y - (anim.prevY || p.y);
             if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
                 facingAngle = Math.atan2(dy, dx);
             } else {
+                // If standing still, we don't have mouse pos for remote players
+                // But we can keep their last known angle
                 facingAngle = anim.lastAngle || 0;
             }
         }
@@ -976,15 +1282,14 @@
         anim.lastDir = dir;
 
         // Check if moving — use input keys for local, position delta for remote
-        const dx = p.x - (anim.prevX || p.x);
-        const dy = p.y - (anim.prevY || p.y);
+        const dxDelta = p.x - (anim.prevX || p.x);
+        const dyDelta = p.y - (anim.prevY || p.y);
         let isMoving;
         if (isMe) {
             // Local player: check if any movement key is held
             isMoving = keys.w || keys.a || keys.s || keys.d;
         } else {
-            // Remote player: detect from position changes with grace period
-            if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+            if (Math.abs(dxDelta) > 0.1 || Math.abs(dyDelta) > 0.1) {
                 anim.moveGrace = 0.15; // keep walking for 150ms after last move
             }
             if (anim.moveGrace > 0) {
@@ -1036,39 +1341,88 @@
             drawHexagon(s.x, s.y, 18);
         }
 
-        // Draw sword sprite — vanguard only
-        const swordSprite = p.role === 'vanguard' ? roleSprites.vanguard.sword[dir] : null;
-        if (swordSprite && swordSprite.complete && swordSprite.naturalWidth > 0) {
-            const SWORD_SCALE = 2; // smaller than character
-            const swordOffsetDist = 20;
-            const swordOffsetX = Math.cos(facingAngle) * swordOffsetDist;
-            const swordOffsetY = Math.sin(facingAngle) * swordOffsetDist;
-            const swW = swordSprite.naturalWidth * SWORD_SCALE;
-            const swH = swordSprite.naturalHeight * SWORD_SCALE;
-
-            // Determine tilt: +30° normally, -30° when moving left
-            const movingLeft = dx < -0.3;
-            const tiltAngle = movingLeft ? (-30 * Math.PI / 180) : (30 * Math.PI / 180);
-
-            // Swing animation on click
-            if (!anim.swingTimer) anim.swingTimer = 0;
+        // Draw weapon sprite based on role
+        let weaponSprite = null;
+        let weaponScale = 2;
+        let weaponOffsetDist = 20;
+        let showSwing = false;
+        if (p.role === 'vanguard') {
+            weaponSprite = roleSprites.vanguard.sword[dir];
+            weaponScale = 1.2;
+            showSwing = true;
+        } else if (p.role === 'engineer') {
+            // Track spear throw: hide held spear for 1.5s after attacking
             if (mouseDown && isMe) {
-                anim.swingTimer = Math.min(anim.swingTimer + dt * 8, 1);
-            } else {
-                anim.swingTimer = Math.max(anim.swingTimer - dt * 5, 0);
+                anim.spearThrown = 1.5; // seconds until spear reappears
             }
-            const swingExtra = anim.swingTimer * (45 * Math.PI / 180); // extra 45° swing on attack
+            if (anim.spearThrown > 0) {
+                anim.spearThrown -= dt;
+                weaponSprite = null; // hide held spear while thrown
+            } else {
+                weaponSprite = spearImg;
+                weaponScale = 0.1;
+                weaponOffsetDist = 20;
+                showSwing = true;
+            }
+        } else if (p.role === 'scout') {
+            weaponSprite = gunImg;
+            weaponScale = 0.06;
+            weaponOffsetDist = 10;
+        } else if (p.role === 'medic') {
+            weaponSprite = medboxImg;
+            weaponScale = 0.1;
+            weaponOffsetDist = 16;
+        }
 
-            ctx.save();
-            ctx.translate(s.x + swordOffsetX, s.y + swordOffsetY);
-            ctx.rotate(facingAngle + tiltAngle + swingExtra);
-            ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(swordSprite, -swW / 2, -swH / 2, swW, swH);
-            ctx.imageSmoothingEnabled = true;
-            ctx.restore();
+        if (weaponSprite && weaponSprite.complete && weaponSprite.naturalWidth > 0) {
+            // Determine facing side
+            const facingRight = Math.cos(facingAngle) >= 0;
 
-            // On click, show damage radius indicator (1 tile = 40px)
-            if (mouseDown && isMe) {
+            // All weapons stay at right hand: horizontal offset only
+            const wOffsetX = facingRight ? weaponOffsetDist : -weaponOffsetDist;
+            const wOffsetY = 0;
+
+            const wW = weaponSprite.naturalWidth * weaponScale;
+            const wH = weaponSprite.naturalHeight * weaponScale;
+
+            if (p.role === 'scout') {
+                // Gun rotates around its grip (bottom) following the cursor
+                ctx.save();
+                ctx.translate(s.x + wOffsetX, s.y + wOffsetY);
+                if (!facingRight) ctx.scale(-1, 1);
+                // Rotate by the angle relative to horizontal
+                const localAngle = facingRight ? facingAngle : (Math.PI - facingAngle);
+                ctx.rotate(localAngle);
+                ctx.imageSmoothingEnabled = false;
+                // Draw with pivot at bottom-center (grip): offset so bottom is at origin
+                ctx.drawImage(weaponSprite, 0, -wH / 2, wW, wH);
+                ctx.imageSmoothingEnabled = true;
+                ctx.restore();
+            } else {
+                // Tilt angle
+                const tiltAngle = facingRight ? (30 * Math.PI / 180) : (-30 * Math.PI / 180);
+
+                // Swing animation on click (melee weapons only)
+                if (!anim.swingTimer) anim.swingTimer = 0;
+                if (mouseDown && isMe && showSwing) {
+                    anim.swingTimer = Math.min(anim.swingTimer + dt * 8, 1);
+                } else {
+                    anim.swingTimer = Math.max(anim.swingTimer - dt * 5, 0);
+                }
+                const swingExtra = showSwing ? anim.swingTimer * (45 * Math.PI / 180) : 0;
+
+                ctx.save();
+                ctx.translate(s.x + wOffsetX, s.y + wOffsetY);
+                if (!facingRight) ctx.scale(-1, 1);
+                ctx.rotate(Math.abs(tiltAngle) + swingExtra);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(weaponSprite, -wW / 2, -wH / 2, wW, wH);
+                ctx.imageSmoothingEnabled = true;
+                ctx.restore();
+            }
+
+            // On click, show damage radius indicator for melee
+            if (mouseDown && isMe && showSwing) {
                 const hitX = s.x + Math.cos(facingAngle) * 35;
                 const hitY = s.y + Math.sin(facingAngle) * 35;
                 ctx.strokeStyle = `rgba(76,201,240,${0.3 + anim.swingTimer * 0.3})`;
@@ -1151,47 +1505,64 @@
             const isElite = e.type === 'elite';
             const r = isElite ? 22 : 16;
 
-            // Glow
-            ctx.shadowColor = isElite ? '#ff6b6b' : '#e63946';
-            ctx.shadowBlur = isElite ? 12 : 6;
+            // Get animation state for this enemy
+            const anim = getEnemyAnim(e.id);
 
-            // Draw triangle
-            ctx.fillStyle = isElite ? '#ff6b6b' : '#e63946';
-            ctx.strokeStyle = isElite ? '#ff9999' : '#ff4444';
-            ctx.lineWidth = isElite ? 2 : 1;
+            // Determine if moving
+            const dx = e.x - (anim.prevX || e.x);
+            const dy = e.y - (anim.prevY || e.y);
+            const isMoving = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+            anim.prevX = e.x;
+            anim.prevY = e.y;
 
-            // Point toward nearest player
-            let angle = 0;
-            const me = gameState.players.find(p => p.id === myId);
-            if (me) angle = Math.atan2(me.y - e.y, me.x - e.x);
+            // Flip based on movement direction
+            const flipX = dx < -0.1;
 
-            ctx.save();
-            ctx.translate(s.x, s.y);
-            ctx.rotate(angle);
-            ctx.beginPath();
-            ctx.moveTo(r, 0);
-            ctx.lineTo(-r * 0.6, -r * 0.7);
-            ctx.lineTo(-r * 0.3, 0);
-            ctx.lineTo(-r * 0.6, r * 0.7);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-
-            if (isElite) {
-                // Spikes
-                ctx.strokeStyle = '#ff9999';
-                ctx.lineWidth = 1;
-                for (let i = 0; i < 3; i++) {
-                    const a = (i / 3) * Math.PI * 2;
-                    ctx.beginPath();
-                    ctx.moveTo(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8);
-                    ctx.lineTo(Math.cos(a) * r * 1.3, Math.sin(a) * r * 1.3);
-                    ctx.stroke();
-                }
+            // Advance animation timer
+            anim.timer += 0.016; // ~60fps
+            if (anim.timer >= 0.1) {
+                anim.timer = 0;
+                anim.frame++;
             }
-            ctx.restore();
 
-            ctx.shadowBlur = 0;
+            // Select frames
+            let frames, frameIdx;
+            if (isMoving) {
+                frames = dogSprites.walk;
+                frameIdx = anim.frame % frames.length;
+            } else {
+                frames = dogSprites.idle;
+                frameIdx = anim.frame % frames.length;
+            }
+
+            const sprite = frames[frameIdx];
+            if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+                const dogScale = isElite ? 1.0 : 0.7;
+                const dW = sprite.naturalWidth * dogScale;
+                const dH = sprite.naturalHeight * dogScale;
+                ctx.save();
+                ctx.translate(s.x, s.y);
+                if (flipX) ctx.scale(-1, 1);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(sprite, -dW / 2, -dH / 2, dW, dH);
+                ctx.imageSmoothingEnabled = true;
+                if (isElite) {
+                    // Red glow for elites
+                    ctx.shadowColor = '#ff6b6b';
+                    ctx.shadowBlur = 15;
+                    ctx.strokeStyle = 'rgba(255,100,100,0.4)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(-dW / 2, -dH / 2, dW, dH);
+                    ctx.shadowBlur = 0;
+                }
+                ctx.restore();
+            } else {
+                // Fallback triangle
+                ctx.fillStyle = isElite ? '#ff6b6b' : '#e63946';
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
             // HP bar
             const hpPct = e.hp / e.maxHp;
@@ -1304,13 +1675,42 @@
         if (!gameState) return;
         for (const p of gameState.projectiles) {
             const s = worldToScreen(p.x, p.y);
-            ctx.fillStyle = p.isPlayerProj ? '#ffd166' : '#ff4444';
-            ctx.shadowColor = p.isPlayerProj ? '#ffd166' : '#ff4444';
-            ctx.shadowBlur = 8;
-            ctx.beginPath();
-            ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
+            const angle = Math.atan2(p.vy || 0, p.vx || 0);
+
+            if (p.isPlayerProj && p.ownerRole === 'engineer' && spearImg && spearImg.complete && spearImg.naturalWidth > 0) {
+                // Engineer: thrown spear projectile
+                const spScale = 0.1;
+                const spW = spearImg.naturalWidth * spScale;
+                const spH = spearImg.naturalHeight * spScale;
+                ctx.save();
+                ctx.translate(s.x, s.y);
+                ctx.rotate(angle);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(spearImg, -spW / 2, -spH / 2, spW, spH);
+                ctx.imageSmoothingEnabled = true;
+                ctx.restore();
+            } else if (p.isPlayerProj && bulletImg && bulletImg.complete && bulletImg.naturalWidth > 0) {
+                // Other player projectiles: bullet sprite
+                const bScale = 0.06;
+                const bW = bulletImg.naturalWidth * bScale;
+                const bH = bulletImg.naturalHeight * bScale;
+                ctx.save();
+                ctx.translate(s.x, s.y);
+                ctx.rotate(angle);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(bulletImg, -bW / 2, -bH / 2, bW, bH);
+                ctx.imageSmoothingEnabled = true;
+                ctx.restore();
+            } else {
+                // Enemy projectiles — red glow circle
+                ctx.fillStyle = '#ff4444';
+                ctx.shadowColor = '#ff4444';
+                ctx.shadowBlur = 8;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
         }
     }
 

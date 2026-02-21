@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt&Play — Space Survival</title>
+    <meta name="description" content="Real-time multiplayer cooperative space survival game">
+    <link rel="stylesheet" href="style.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <!-- MOBILE BLOCK SCREEN -->
+    <div id="mobileBlock" class="mobile-block" style="display:none;">
+        <div class="mobile-block-content">
+            <div class="mobile-block-icon">🚀</div>
+            <h1 class="mobile-block-title">Prompt&Play</h1>
+            <div class="mobile-block-divider"></div>
+            <p class="mobile-block-msg">This game is not yet available on mobile devices.</p>
+            <p class="mobile-block-coming">COMING SOON</p>
+            <div class="mobile-block-dots">
+                <span></span><span></span><span></span>
+            </div>
+            <p class="mobile-block-hint">Please visit on a desktop or laptop browser to play.</p>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- LOBBY OVERLAY -->
+    <div id="lobbyOverlay" class="overlay">
+        <div class="lobby-container">
+            <h1 class="game-title">Prompt&Play</h1>
+            <p class="game-subtitle">COOPERATIVE SPACE SURVIVAL</p>
+
+            <div id="connectScreen">
+                <input type="text" id="nameInput" placeholder="ENTER CALLSIGN" maxlength="12" />
+                <div class="btn-group">
+                    <button id="createBtn" class="btn btn-primary">CREATE ROOM</button>
+                    <div class="join-row">
+                        <input type="text" id="roomCodeInput" placeholder="ROOM CODE" maxlength="4" />
+                        <button id="joinBtn" class="btn btn-secondary">JOIN</button>
+                    </div>
+                </div>
+                <p id="errorMsg" class="error-msg"></p>
+            </div>
+
+            <div id="roomScreen" style="display:none;">
+                <div class="room-code-display">
+                    ROOM: <span id="roomCodeDisplay"></span>
+                </div>
+                <div id="roleSelection" class="role-grid">
+                    <div class="role-card" data-role="vanguard">
+                        <div class="role-icon role-vanguard">⬡</div>
+                        <h3>VANGUARD</h3>
+                        <div class="role-stats">
+                            <span>HP: 220</span><span>DMG: 28</span>
+                        </div>
+                        <p class="role-desc">Frontline tank. Melee strikes. Regen in combat.</p>
+                        <p class="role-ability">Q: Overdrive — 40 dmg, -30% taken (6s)</p>
+                    </div>
+                    <div class="role-card" data-role="engineer">
+                        <div class="role-icon role-engineer">⚙</div>
+                        <h3>ENGINEER</h3>
+                        <div class="role-stats">
+                            <span>HP: 170</span><span>DMG: 18</span>
+                        </div>
+                        <p class="role-desc">Repair specialist. 40% faster repairs.</p>
+                        <p class="role-ability">Q: Auto-Turret — 12 dps turret (10s)</p>
+                    </div>
+                    <div class="role-card" data-role="scout">
+                        <div class="role-icon role-scout">◆</div>
+                        <h3>SCOUT</h3>
+                        <div class="role-stats">
+                            <span>HP: 140</span><span>DMG: 22</span>
+                        </div>
+                        <p class="role-desc">Fast attacker. +15% speed. Full minimap.</p>
+                        <p class="role-ability">Q: Weakpoint Scan — +35% boss dmg (8s)</p>
+                    </div>
+                    <div class="role-card" data-role="medic">
+                        <div class="role-icon role-medic">✚</div>
+                        <h3>MEDIC</h3>
+                        <div class="role-stats">
+                            <span>HP: 160</span><span>DMG: 10</span>
+                        </div>
+                        <p class="role-desc">Healer. 20 HP/s heal beam to allies.</p>
+                        <p class="role-ability">Q: Field Surge — 60 HP AoE heal (4s resist)</p>
+                    </div>
+                </div>
+                <div id="playerList" class="player-list"></div>
+                <div class="lobby-actions">
+                    <button id="readyBtn" class="btn btn-ready">READY</button>
+                    <button id="startBtn" class="btn btn-start" style="display:none;">LAUNCH MISSION</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER OVERLAY -->
+    <div id="gameOverOverlay" class="overlay" style="display:none;">
+        <div class="gameover-container">
+            <h1 id="gameOverTitle" class="gameover-title"></h1>
+            <p id="gameOverSubtitle" class="gameover-subtitle"></p>
+            <div id="finalScoreboard" class="final-scoreboard"></div>
+            <button id="backToLobbyBtn" class="btn btn-primary">RETURN TO BASE</button>
+        </div>
+    </div>
+
+    <!-- HUD (shown during gameplay) -->
+    <div id="hud" style="display:none;">
+        <div id="timerDisplay" class="hud-timer">10:00</div>
+        <div id="objectiveDisplay" class="hud-objective"></div>
+        <div id="phaseDisplay" class="hud-phase"></div>
+        <div id="playerHud" class="hud-player">
+            <div class="hud-hp-bar-container">
+                <div id="hudHpBar" class="hud-hp-bar"></div>
+                <span id="hudHpText" class="hud-hp-text">220/220</span>
+            </div>
+            <div id="hudAbility" class="hud-ability">
+                <span id="hudAbilityKey">Q</span>
+                <div id="hudAbilityCd" class="hud-ability-cd"></div>
+            </div>
+        </div>
+        <div id="controlsHint" class="hud-controls">WASD Move · Click Attack · E Interact · Q Ability · Tab Scores</div>
+    </div>
+
+    <script>
+        (function () {
+            var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+                || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+            if (isMobile) {
+                document.getElementById('mobileBlock').style.display = 'flex';
+                document.getElementById('lobbyOverlay').style.display = 'none';
+                document.getElementById('gameCanvas').style.display = 'none';
+            }
+        })();
+    </script>
+    <script src="game.js?v=2"></script>
+</body>
+
+</html>

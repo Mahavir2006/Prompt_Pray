@@ -51,6 +51,15 @@
             <div id="roomScreen" style="display:none;">
                 <div class="room-code-display">
                     ROOM: <span id="roomCodeDisplay"></span>
+                    <button id="copyCodeBtn" class="copy-btn" title="Copy room code">📋</button>
+                    <button id="speakerBtn" class="btn btn-secondary"
+                        style="padding: 6px 14px; margin-left:20px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">SPEAKER
+                        OFF</button>
+                    <select id="speakerSelect" class="btn btn-secondary"
+                        style="display:none; padding: 6px; margin-left: 10px; font-size: 0.8rem; background: rgba(0,0,0,0.5); border-color: rgba(255, 255, 255, 0.2); color: #fff; max-width: 150px; text-overflow: ellipsis; outline: none;"></select>
+                    <button id="micBtn" class="btn btn-secondary"
+                        style="padding: 6px 14px; margin-left:10px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">MIC
+                        OFF</button>
                 </div>
                 <div id="roleSelection" class="role-grid">
                     <div class="role-card" data-role="vanguard">
@@ -124,7 +133,14 @@
                 <div id="hudAbilityCd" class="hud-ability-cd"></div>
             </div>
         </div>
-        <div id="controlsHint" class="hud-controls">WASD Move · Click Attack · E Interact · Q Ability · Tab Scores</div>
+        <div id="controlsHint" class="hud-controls">WASD Move · Click Attack · E Interact · Q Ability · Tab Scores ·
+            Enter Chat</div>
+
+        <div id="chatBox" class="hud-chat">
+            <div id="chatMessages" class="chat-messages"></div>
+            <input type="text" id="chatInput" class="chat-input" placeholder="Press Enter to chat..." maxlength="100"
+                style="display:none;" />
+        </div>
     </div>
 
     <script>
@@ -138,7 +154,7 @@
             }
         })();
     </script>
-    <script src="game.js?v=2"></script>
+    <script src="game.js?v=8"></script>
 </body>
 
 </html>

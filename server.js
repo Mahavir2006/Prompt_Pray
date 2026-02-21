@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -68,6 +67,7 @@ const MAP_ZONES = [
     { id: 'wing_right', x: 964, y: 430, w: 55, h: 100 },
 ];
 
+const fs = require('fs');
 // Dynamically load precise OBSTACLES from Tiled JSON
 const OBSTACLES = [];
 try {
@@ -85,7 +85,6 @@ try {
             let aabbH = obj.height;
 
             // Handle Tiled rotated objects by computing the new Axis-Aligned Bounding Box
-            // Tiled rotation is around the top-left origin, so we compute the 4 corners and find min/max
             if (obj.rotation) {
                 const rad = obj.rotation * (Math.PI / 180);
                 const cos = Math.cos(rad);
@@ -117,7 +116,7 @@ try {
         });
     }
 } catch (e) {
-    console.error("Failed to load or parse ship_collisions.json. Please ensure the file exists in public/assets/", e);
+    console.error("Failed to load or parse ship_collisions.json.", e);
 }
 // ── MAP INTEGRATION END ──
 
@@ -381,6 +380,8 @@ function createGameState(room) {
         phaseTimer: 0,
         objectiveIndex: 0,
         objectiveProgress: 0,
+        phaseEnemiesSpawned: 0,
+        phaseWarningSent: false,
         doorUnlocked: false,
         players: new Map(),
         enemies: new Map(),
@@ -443,6 +444,7 @@ function gameTick(room) {
 
     // Timer countdown (not during cinematic)
     gs.timer -= DT;
+    gs.phaseTimer += DT; // Accumulate time in current phase
     if (gs.timer <= 0) {
         gs.timer = 0;
         endGame(room, false);
@@ -481,9 +483,7 @@ function gameTick(room) {
 
     // Turrets
     updateTurrets(gs);
-
-    // Spawning
-    handleSpawning(gs);
+    handleSpawning(gs, room);
 
     // Objectives
     handleObjective(gs, room);
@@ -504,7 +504,7 @@ function gameTick(room) {
     if (allDead) {
         let anyRespawning = false;
         for (const [, p] of gs.players) {
-            if (p.respawnTimer > 0) { anyRespawning = true; break; }
+            if (p.respawnTimer > 0 && p.respawnTimer !== Infinity) { anyRespawning = true; break; }
         }
         if (!anyRespawning) endGame(room, false);
     }
@@ -555,15 +555,15 @@ function updatePlayer(gs, player) {
         }
     }
 
-    // Attack
-    if (inp.attack && player.attackCd <= 0) {
+    // Attack (not medic — medic can only heal)
+    if (inp.attack && player.attackCd <= 0 && player.role !== 'medic') {
         performAttack(gs, player);
         player.attackCd = role.attackCd;
         player.combatTimer = 3;
     }
 
-    // Medic heal beam (continuous when not attacking)
-    if (player.role === 'medic' && !inp.attack) {
+    // Medic heal beam (continuous, also when clicking)
+    if (player.role === 'medic') {
         healNearestAlly(gs, player);
     }
 
@@ -607,7 +607,8 @@ function performAttack(gs, player) {
             damage: role.damage,
             owner: player.id,
             life: role.range / (role.projSpeed || PROJ_SPEED),
-            isPlayerProj: true
+            isPlayerProj: true,
+            ownerRole: player.role
         });
     }
 }
@@ -761,8 +762,23 @@ function spawnEnemy(gs, x, y, type) {
     });
 }
 
-function handleSpawning(gs) {
+function handleSpawning(gs, room) {
     if (gs.phase === 'cinematic' || gs.phase === 'intro') return;
+
+    // Custom logic for first phase
+    if (gs.phase === 'objective1') {
+        if (gs.phaseTimer >= 10 && !gs.phaseWarningSent) {
+            gs.phaseWarningSent = true;
+            broadcastToRoom(room, { type: 'chat', name: 'SYSTEM', msg: 'Enemies will arrive in 5 seconds!', color: '#ff4444' });
+        }
+        if (gs.phaseTimer < 15) return; // Wait 15s before spawning enemies (10s settle + 5s warning)
+        if (gs.phaseEnemiesSpawned >= 15) return; // Max 15 enemies for first wave
+    }
+
+    // Custom logic for second phase
+    if (gs.phase === 'objective2') {
+        if (gs.phaseEnemiesSpawned >= 45) return; // Max 45 enemies for second wave
+    }
 
     gs.spawnTimer -= DT;
     if (gs.spawnTimer > 0) return;
@@ -770,7 +786,7 @@ function handleSpawning(gs) {
     let spawnZone, count, interval, includeElites = false;
     switch (gs.phase) {
         case 'objective1':
-            spawnZone = 'cockpit_room'; count = 2 + Math.floor(Math.random() * 2); interval = 5;
+            spawnZone = 'corridor'; count = 2 + Math.floor(Math.random() * 2); interval = 5;
             break;
         case 'objective2':
             spawnZone = 'left_3'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
@@ -792,18 +808,20 @@ function handleSpawning(gs) {
 
     const points = SPAWN_POINTS[spawnZone] || SPAWN_POINTS.corridor;
     for (let i = 0; i < count; i++) {
+        if (gs.phase === 'objective1' && gs.phaseEnemiesSpawned >= 15) break;
+        if (gs.phase === 'objective2' && gs.phaseEnemiesSpawned >= 45) break;
         const sp = points[Math.floor(Math.random() * points.length)];
         const type = includeElites && Math.random() < 0.3 ? 'elite' : 'common';
         spawnEnemy(gs, sp.x + (Math.random() - 0.5) * 40, sp.y + (Math.random() - 0.5) * 40, type);
+        gs.phaseEnemiesSpawned++; // Track for all phases
     }
     gs.spawnTimer = interval;
 }
 
 // ======================== BOSS AI ========================
 function spawnBoss(gs) {
-    // ── MAP INTEGRATION: boss spawns in engine room (scaled) ──
     gs.boss = {
-        x: 512 * MAP_SCALE, y: 850 * MAP_SCALE,
+        x: 1100, y: 250,
         hp: 2000, maxHp: 2000,
         phase: 0,
         attackCd: 2,
@@ -910,7 +928,7 @@ function updateBoss(gs) {
                 p.hp -= dmg;
                 p.combatTimer = 3;
                 gs.events.push({ type: 'damage', x: p.x, y: p.y - 25, value: dmg });
-                if (p.hp <= 0) { p.hp = 0; p.alive = false; p.respawnTimer = RESPAWN_TIME; }
+                if (p.hp <= 0) { p.hp = 0; p.alive = false; p.respawnTimer = Infinity; }
                 boss.attackType = 'idle';
                 boss.stunTimer = 0.5;
             }
@@ -932,10 +950,9 @@ function updateBoss(gs) {
         boss.y += Math.sin(angle) * 40 * DT;
     }
 
-    // ── MAP INTEGRATION: keep boss in engine room (scaled) ──
-    constrainToMap(gs, boss, BOSS_RADIUS);
-    boss.x = Math.max(100 * MAP_SCALE, Math.min(924 * MAP_SCALE, boss.x));
-    boss.y = Math.max(770 * MAP_SCALE, Math.min(960 * MAP_SCALE, boss.y));
+    // Keep boss in exterior zone
+    boss.x = Math.max(870, Math.min(1380, boss.x));
+    boss.y = Math.max(70, Math.min(430, boss.y));
 }
 
 function damageBoss(gs, amount, player) {
@@ -983,7 +1000,7 @@ function updateProjectiles(gs) {
                     p.hp -= dmg;
                     p.combatTimer = 3;
                     gs.events.push({ type: 'damage', x: p.x, y: p.y - 25, value: dmg });
-                    if (p.hp <= 0) { p.hp = 0; p.alive = false; p.respawnTimer = RESPAWN_TIME; }
+                    if (p.hp <= 0) { p.hp = 0; p.alive = false; p.respawnTimer = Infinity; }
                     gs.projectiles.delete(id);
                     break;
                 }
@@ -1047,12 +1064,25 @@ function handleObjective(gs, room) {
         if (!player.alive || !player.input.interact) continue;
         const d = distance(player, obj);
         if (d > INTERACT_RANGE) continue;
-        if (player.role === 'engineer') {
-            repairSpeed += 1.4 / obj.repairTime;
-            player.score.repairsDone += DT;
+
+        // Different timings for different objectives
+        if (gs.phase === 'objective2') {
+            if (player.role === 'engineer') {
+                repairSpeed += 1 / 45; // 45 seconds for engineer
+                player.score.repairsDone += DT;
+            } else {
+                repairSpeed += 1 / 75; // 1 min 15 seconds (75s) for others
+                player.score.repairsDone += DT * (45 / 75);
+            }
         } else {
-            repairSpeed += 0.6 / obj.repairTime;
-            player.score.repairsDone += DT * 0.6;
+            // Default timings (Objective 1, 3, etc.)
+            if (player.role === 'engineer') {
+                repairSpeed += 1 / 30; // 30 seconds for engineer
+                player.score.repairsDone += DT;
+            } else {
+                repairSpeed += 1 / 45; // 45 seconds for others
+                player.score.repairsDone += DT * (30 / 45);
+            }
         }
     }
 
@@ -1068,6 +1098,12 @@ function completeObjective(gs, room) {
     gs.objectiveProgress = 0;
     gs.objectivesCompleted++;
     gs.enemyHpScale += 0.1;
+    gs.phaseTimer = 0;
+    gs.phaseEnemiesSpawned = 0;
+    gs.phaseWarningSent = false;
+
+    // Provide some score to all
+    for (const [, p] of gs.players) p.score.repairsDone += 50;
 
     switch (gs.phase) {
         case 'objective1':
@@ -1075,7 +1111,7 @@ function completeObjective(gs, room) {
             gs.phase = 'objective2';
             gs.phaseTimer = 0;
             gs.enemyDmgBase = 12;
-            gs.events.push({ type: 'announcement', text: 'CORE STABILIZED! RESTORE LEFT GRID!', duration: 3, color: '#06d6a0' });
+            gs.events.push({ type: 'announcement', text: 'CORE STABILIZED! HATCH UNLOCKED!', duration: 3, color: '#06d6a0' });
             break;
 
         case 'objective2':
@@ -1083,7 +1119,7 @@ function completeObjective(gs, room) {
             gs.phaseTimer = 0;
             gs.enemyDmgBase = 15;
             gs.enemySpeedBase = 110;
-            gs.events.push({ type: 'announcement', text: 'LEFT GRID ONLINE! RESTORE RIGHT GRID!', duration: 3, color: '#ffd166' });
+            gs.events.push({ type: 'announcement', text: 'BEACON ACTIVE! ENEMIES ALERTED!', duration: 3, color: '#ffd166' });
             break;
 
         case 'objective3':
@@ -1180,16 +1216,15 @@ function constrainToMap(gs, entity, r = PLAYER_RADIUS) {
             }
         }
     }
-    // ── MAP INTEGRATION END ──
 }
 
 function respawnPlayer(gs, player) {
     const role = ROLES[player.role];
     player.alive = true;
     player.hp = Math.floor(role.hp * 0.5);
-    // ── MAP INTEGRATION: respawn in central corridor (scaled) ──
-    player.x = (490 + Math.random() * 44) * MAP_SCALE;
-    player.y = (680 + Math.random() * 40) * MAP_SCALE;
+    // Respawn at ship start
+    player.x = 300 + Math.random() * 200;
+    player.y = 200 + Math.random() * 100;
     player.attackCd = 0;
 }
 
@@ -1243,7 +1278,7 @@ function broadcastState(room) {
 
     const projs = [];
     for (const [, p] of gs.projectiles) {
-        projs.push({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), isPlayerProj: p.isPlayerProj });
+        projs.push({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), vx: p.vx || p.dx, vy: p.vy || p.dy, isPlayerProj: p.isPlayerProj, ownerRole: p.ownerRole });
     }
 
     const currentObj = { objective1: 0, objective2: 1, objective3: 2, final: 3 }[gs.phase];
@@ -1372,6 +1407,46 @@ wss.on('connection', (ws) => {
                     mouseX: msg.mouseX || 0, mouseY: msg.mouseY || 0,
                     attack: !!msg.attack, interact: !!msg.interact, ability: !!msg.ability
                 };
+                break;
+            }
+
+            case 'chat': {
+                if (!currentRoom || !currentRoom.gameState) return;
+                const player = currentRoom.players.get(ws);
+                if (!player) return;
+                const roleColor = {
+                    vanguard: '#4cc9f0',
+                    engineer: '#f4a261',
+                    scout: '#ffd166',
+                    medic: '#ef476f'
+                }[player.role] || '#ffffff';
+                currentRoom.gameState.events.push({
+                    type: 'chat',
+                    name: player.name,
+                    msg: String(msg.msg).substring(0, 100),
+                    color: roleColor
+                });
+                break;
+            }
+
+            case 'webrtc_signal': {
+                if (!currentRoom) return;
+                const player = currentRoom.players.get(ws);
+                if (!player) return;
+
+                // Find target player
+                for (const [targetWs, targetP] of currentRoom.players) {
+                    if (targetP.id === msg.targetId) {
+                        if (targetWs.readyState === 1) {
+                            targetWs.send(JSON.stringify({
+                                type: 'webrtc_signal',
+                                senderId: player.id,
+                                signalData: msg.signalData
+                            }));
+                        }
+                        break;
+                    }
+                }
                 break;
             }
         }
