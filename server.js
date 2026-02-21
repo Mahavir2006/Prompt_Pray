@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -37,30 +38,268 @@ const ROLES = {
     medic: { hp: 160, damage: 10, range: 200, speed: 200, attackCd: 0.7, projSpeed: PROJ_SPEED * 0.8, description: 'Team healer' }
 };
 
+// ── MAP INTEGRATION START ──
+// Walkable zone rectangles for the 1024x1024 spaceship interior map
 const MAP_ZONES = [
-    { id: 'ship', x: 50, y: 50, w: 700, h: 400 },
-    { id: 'doorway', x: 750, y: 175, w: 100, h: 150, locked: true },
-    { id: 'exterior', x: 850, y: 50, w: 550, h: 400 },
-    { id: 'corridor1', x: 1400, y: 150, w: 550, h: 200 },
-    { id: 'beacon', x: 1950, y: 50, w: 550, h: 400 },
-    { id: 'corridor2', x: 2500, y: 150, w: 550, h: 200 },
-    { id: 'satellite', x: 3050, y: 50, w: 550, h: 400 }
+    // Cockpit tip (top center)
+    { id: 'cockpit', x: 420, y: 40, w: 184, h: 120 },
+    // Cockpit room (wider area with console)
+    { id: 'cockpit_room', x: 300, y: 160, w: 424, h: 130 },
+    // Central corridor (full vertical strip)
+    { id: 'corridor', x: 475, y: 160, w: 74, h: 800 },
+    // Left rooms (between hull diagonal and corridor left wall)
+    { id: 'left_1', x: 255, y: 290, w: 240, h: 80 },
+    { id: 'left_2', x: 210, y: 370, w: 285, h: 80 },
+    { id: 'left_3', x: 170, y: 450, w: 325, h: 80 },
+    { id: 'left_4', x: 140, y: 530, w: 355, h: 80 },
+    { id: 'left_5', x: 110, y: 610, w: 385, h: 80 },
+    { id: 'left_6', x: 80, y: 690, w: 415, h: 70 },
+    // Right rooms (mirror of left)
+    { id: 'right_1', x: 529, y: 290, w: 240, h: 80 },
+    { id: 'right_2', x: 529, y: 370, w: 285, h: 80 },
+    { id: 'right_3', x: 529, y: 450, w: 325, h: 80 },
+    { id: 'right_4', x: 529, y: 530, w: 355, h: 80 },
+    { id: 'right_5', x: 529, y: 610, w: 385, h: 80 },
+    { id: 'right_6', x: 529, y: 690, w: 415, h: 70 },
+    // Engine room (wide area at bottom)
+    { id: 'engine', x: 60, y: 760, w: 904, h: 220 },
+    // Wing tips (small protrusions on sides)
+    { id: 'wing_left', x: 5, y: 430, w: 55, h: 100 },
+    { id: 'wing_right', x: 964, y: 430, w: 55, h: 100 },
 ];
 
+// Dynamically load precise OBSTACLES from Tiled JSON
+const OBSTACLES = [];
+try {
+    const rawMapData = fs.readFileSync(path.join(__dirname, 'public', 'assets', 'ship_collisions.json'));
+    const mapData = JSON.parse(rawMapData);
+    const collisionLayer = mapData.layers.find(layer => layer.name === 'collisions');
+
+    if (collisionLayer && collisionLayer.objects) {
+        collisionLayer.objects.forEach(obj => {
+            if (obj.width === 0 && obj.height === 0) return; // Skip zero-size points
+
+            let aabbX = obj.x;
+            let aabbY = obj.y;
+            let aabbW = obj.width;
+            let aabbH = obj.height;
+
+            // Handle Tiled rotated objects by computing the new Axis-Aligned Bounding Box
+            // Tiled rotation is around the top-left origin, so we compute the 4 corners and find min/max
+            if (obj.rotation) {
+                const rad = obj.rotation * (Math.PI / 180);
+                const cos = Math.cos(rad);
+                const sin = Math.sin(rad);
+
+                const c1 = { x: 0, y: 0 };
+                const c2 = { x: obj.width * cos, y: obj.width * sin };
+                const c3 = { x: -obj.height * sin, y: obj.height * cos };
+                const c4 = { x: obj.width * cos - obj.height * sin, y: obj.width * sin + obj.height * cos };
+
+                const minX = Math.min(c1.x, c2.x, c3.x, c4.x);
+                const maxX = Math.max(c1.x, c2.x, c3.x, c4.x);
+                const minY = Math.min(c1.y, c2.y, c3.y, c4.y);
+                const maxY = Math.max(c1.y, c2.y, c3.y, c4.y);
+
+                aabbX = obj.x + minX;
+                aabbY = obj.y + minY;
+                aabbW = maxX - minX;
+                aabbH = maxY - minY;
+            }
+
+            OBSTACLES.push({
+                type: 'rect',
+                x: aabbX,
+                y: aabbY,
+                w: aabbW,
+                h: aabbH
+            });
+        });
+    }
+} catch (e) {
+    console.error("Failed to load or parse ship_collisions.json. Please ensure the file exists in public/assets/", e);
+}
+// ── MAP INTEGRATION END ──
+
+// ── MAP SCALE: multiply all coordinates for large Minecraft-like world ──
+const MAP_SCALE = 3;
+MAP_ZONES.forEach(z => { z.x *= MAP_SCALE; z.y *= MAP_SCALE; z.w *= MAP_SCALE; z.h *= MAP_SCALE; });
+OBSTACLES.forEach(o => { o.x *= MAP_SCALE; o.y *= MAP_SCALE; if (o.w) o.w *= MAP_SCALE; if (o.h) o.h *= MAP_SCALE; if (o.r) o.r *= MAP_SCALE; });
+
 const OBJECTIVES = [
-    { phase: 'objective1', x: 400, y: 250, repairTime: 12, desc: 'Stabilize Core System', zone: 'ship' },
-    { phase: 'objective2', x: 2225, y: 250, repairTime: 10, desc: 'Activate Signal Beacon', zone: 'beacon' },
-    { phase: 'objective3', x: 3325, y: 250, repairTime: 15, desc: 'Restore Satellite Uplink', zone: 'satellite' },
-    { phase: 'final', x: 400, y: 250, repairTime: 8, desc: 'Send Transmission', zone: 'ship' }
+    { phase: 'objective1', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, repairTime: 12, desc: 'Stabilize Core System', zone: 'cockpit_room' },
+    { phase: 'objective2', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 10, desc: 'Restore Left Power Grid', zone: 'left_3' },
+    { phase: 'objective3', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 15, desc: 'Restore Right Power Grid', zone: 'right_3' },
+    { phase: 'final', x: 512 * MAP_SCALE, y: 870 * MAP_SCALE, repairTime: 8, desc: 'Activate Engine Core', zone: 'engine' }
 ];
 
 const SPAWN_POINTS = {
-    ship: [{ x: 700, y: 100 }, { x: 700, y: 400 }, { x: 100, y: 100 }, { x: 100, y: 400 }],
-    exterior: [{ x: 1350, y: 100 }, { x: 1350, y: 400 }, { x: 900, y: 100 }, { x: 900, y: 400 }],
-    beacon: [{ x: 2450, y: 100 }, { x: 2450, y: 400 }, { x: 2000, y: 100 }, { x: 2000, y: 400 }],
-    satellite: [{ x: 3550, y: 100 }, { x: 3550, y: 400 }, { x: 3100, y: 100 }, { x: 3100, y: 400 }],
-    boss_adds: [{ x: 1350, y: 100 }, { x: 1350, y: 400 }, { x: 900, y: 450 }, { x: 1200, y: 80 }]
+    cockpit_room: [{ x: 400 * MAP_SCALE, y: 210 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 210 * MAP_SCALE }, { x: 620 * MAP_SCALE, y: 210 * MAP_SCALE }, { x: 460 * MAP_SCALE, y: 240 * MAP_SCALE }],
+    corridor: [{ x: 512 * MAP_SCALE, y: 400 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 500 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 600 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 700 * MAP_SCALE }],
+    left_3: [{ x: 250 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 300 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 350 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 200 * MAP_SCALE, y: 480 * MAP_SCALE }],
+    right_3: [{ x: 774 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 700 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 650 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 824 * MAP_SCALE, y: 480 * MAP_SCALE }],
+    engine: [{ x: 400 * MAP_SCALE, y: 810 * MAP_SCALE }, { x: 600 * MAP_SCALE, y: 810 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 850 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 790 * MAP_SCALE }],
+    boss_adds: [{ x: 200 * MAP_SCALE, y: 800 * MAP_SCALE }, { x: 824 * MAP_SCALE, y: 800 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 780 * MAP_SCALE }, { x: 350 * MAP_SCALE, y: 850 * MAP_SCALE }]
 };
+
+// ── FAST A* PATHFINDING START ──
+const PF_CELL = 32;
+let navGrid = [];
+let PF_W = 0;
+let PF_H = 0;
+
+function buildNavGrid() {
+    PF_W = Math.ceil((1024 * MAP_SCALE) / PF_CELL);
+    PF_H = Math.ceil((1024 * MAP_SCALE) / PF_CELL);
+    navGrid = new Array(PF_W * PF_H).fill(false);
+    let r = ENEMY_RADIUS;
+
+    for (let y = 0; y < PF_H; y++) {
+        for (let x = 0; x < PF_W; x++) {
+            let cx = x * PF_CELL + PF_CELL / 2;
+            let cy = y * PF_CELL + PF_CELL / 2;
+            let idx = y * PF_W + x;
+
+            let inZone = false;
+            for (const zone of MAP_ZONES) {
+                if (cx >= zone.x && cx <= zone.x + zone.w &&
+                    cy >= zone.y && cy <= zone.y + zone.h) {
+                    inZone = true;
+                    break;
+                }
+            }
+            if (!inZone) continue;
+
+            let hitObs = false;
+            for (const obs of OBSTACLES) {
+                if (obs.type === 'rect') {
+                    const closestX = Math.max(obs.x, Math.min(obs.x + obs.w, cx));
+                    const closestY = Math.max(obs.y, Math.min(obs.y + obs.h, cy));
+                    if (Math.hypot(cx - closestX, cy - closestY) < r) { hitObs = true; break; }
+                } else if (obs.type === 'circle') {
+                    if (Math.hypot(cx - obs.x, cy - obs.y) < r + obs.r) { hitObs = true; break; }
+                }
+            }
+            if (!hitObs) navGrid[idx] = true;
+        }
+    }
+}
+buildNavGrid();
+
+function findPath(startX, startY, endX, endY) {
+    let sx = Math.floor(startX / PF_CELL);
+    let sy = Math.floor(startY / PF_CELL);
+    let ex = Math.floor(endX / PF_CELL);
+    let ey = Math.floor(endY / PF_CELL);
+
+    sx = Math.max(0, Math.min(PF_W - 1, sx));
+    sy = Math.max(0, Math.min(PF_H - 1, sy));
+    ex = Math.max(0, Math.min(PF_W - 1, ex));
+    ey = Math.max(0, Math.min(PF_H - 1, ey));
+
+    const startIdx = sy * PF_W + sx;
+    const endIdx = ey * PF_W + ex;
+
+    if (startIdx === endIdx) return [];
+
+    // Find closest walkable end node if unwalkable
+    if (!navGrid[endIdx]) {
+        let bestDist = Infinity;
+        let bestE = endIdx;
+        let searchRad = 3;
+        for (let dy = -searchRad; dy <= searchRad; dy++) {
+            for (let dx = -searchRad; dx <= searchRad; dx++) {
+                let nx = ex + dx, ny = ey + dy;
+                if (nx >= 0 && nx < PF_W && ny >= 0 && ny < PF_H) {
+                    let ni = ny * PF_W + nx;
+                    if (navGrid[ni]) {
+                        let dist = dx * dx + dy * dy;
+                        if (dist < bestDist) {
+                            bestDist = dist;
+                            bestE = ni;
+                        }
+                    }
+                }
+            }
+        }
+        if (bestDist !== Infinity) {
+            ex = bestE % PF_W;
+            ey = Math.floor(bestE / PF_W);
+        } else {
+            return null; // Totally unreachable
+        }
+    }
+
+    const targetIdx = ey * PF_W + ex;
+    const open = [startIdx];
+    const cameFrom = new Int32Array(PF_W * PF_H).fill(-1);
+    const gScore = new Float32Array(PF_W * PF_H).fill(Infinity);
+    const fScore = new Float32Array(PF_W * PF_H).fill(Infinity);
+    const closed = new Uint8Array(PF_W * PF_H).fill(0);
+
+    gScore[startIdx] = 0;
+    fScore[startIdx] = Math.abs(sx - ex) + Math.abs(sy - ey);
+
+    let limit = 2000;
+
+    while (open.length > 0 && limit-- > 0) {
+        let lowestIndex = 0;
+        let current = open[0];
+        let currF = fScore[current];
+        for (let i = 1; i < open.length; i++) {
+            if (fScore[open[i]] < currF) {
+                currF = fScore[open[i]];
+                current = open[i];
+                lowestIndex = i;
+            }
+        }
+
+        if (current === targetIdx) {
+            const path = [];
+            let curr = current;
+            while (cameFrom[curr] !== -1) {
+                let cx = (curr % PF_W) * PF_CELL + PF_CELL / 2;
+                let cy = Math.floor(curr / PF_W) * PF_CELL + PF_CELL / 2;
+                path.push({ x: cx, y: cy });
+                curr = cameFrom[curr];
+            }
+            return path.reverse();
+        }
+
+        open.splice(lowestIndex, 1);
+        closed[current] = 1;
+
+        let cx = current % PF_W;
+        let cy = Math.floor(current / PF_W);
+
+        const neighbors = [
+            { x: cx, y: cy - 1, w: 1 },
+            { x: cx, y: cy + 1, w: 1 },
+            { x: cx - 1, y: cy, w: 1 },
+            { x: cx + 1, y: cy, w: 1 },
+            { x: cx - 1, y: cy - 1, w: 1.4 },
+            { x: cx + 1, y: cy - 1, w: 1.4 },
+            { x: cx - 1, y: cy + 1, w: 1.4 },
+            { x: cx + 1, y: cy + 1, w: 1.4 }
+        ];
+
+        for (const n of neighbors) {
+            if (n.x < 0 || n.x >= PF_W || n.y < 0 || n.y >= PF_H) continue;
+            let nIdx = n.y * PF_W + n.x;
+            if (!navGrid[nIdx] || closed[nIdx]) continue;
+
+            let tentativeG = gScore[current] + n.w;
+            if (tentativeG < gScore[nIdx]) {
+                cameFrom[nIdx] = current;
+                gScore[nIdx] = tentativeG;
+                fScore[nIdx] = tentativeG + Math.hypot(n.x - ex, n.y - ey);
+                if (!open.includes(nIdx)) open.push(nIdx);
+            }
+        }
+    }
+    return null;
+}
+// ── FAST A* PATHFINDING END ──
 
 // ======================== ROOM MANAGEMENT ========================
 const rooms = new Map();
@@ -161,8 +400,10 @@ function createGameState(room) {
     };
 
     let i = 0;
+    // ── MAP INTEGRATION: spawn in central corridor (scaled) ──
     const spawnPositions = [
-        { x: 300, y: 200 }, { x: 500, y: 200 }, { x: 300, y: 300 }, { x: 500, y: 300 }
+        { x: 500 * MAP_SCALE, y: 700 * MAP_SCALE }, { x: 524 * MAP_SCALE, y: 700 * MAP_SCALE },
+        { x: 500 * MAP_SCALE, y: 730 * MAP_SCALE }, { x: 524 * MAP_SCALE, y: 730 * MAP_SCALE }
     ];
     for (const [, p] of room.players) {
         const role = ROLES[p.role];
@@ -453,11 +694,37 @@ function updateEnemies(gs) {
 
         if (!target) continue;
 
-        // Move toward target
-        const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+        // A* Pathfinding Logic
+        if (enemy.pathTimer === undefined) enemy.pathTimer = 0;
+        enemy.pathTimer -= DT;
+
+        let moveTargetX = target.x;
+        let moveTargetY = target.y;
+
+        if (enemy.pathTimer <= 0 || !enemy.path) {
+            enemy.path = findPath(enemy.x, enemy.y, target.x, target.y);
+            enemy.pathTimer = 0.5 + Math.random() * 0.2; // Recalculate ~twice a second
+        }
+
+        if (enemy.path && enemy.path.length > 0) {
+            const nextNode = enemy.path[0];
+            const dNode = distance(enemy, nextNode);
+            if (dNode < 32) {
+                enemy.path.shift();
+            }
+            if (enemy.path.length > 0) {
+                moveTargetX = enemy.path[0].x;
+                moveTargetY = enemy.path[0].y;
+            }
+        }
+
+        // Move toward moveTarget
+        const angle = Math.atan2(moveTargetY - enemy.y, moveTargetX - enemy.x);
         const speed = enemy.speed * (gs.objectivesCompleted >= 2 ? 1.1 : 1);
         enemy.x += Math.cos(angle) * speed * DT;
         enemy.y += Math.sin(angle) * speed * DT;
+
+        constrainToMap(gs, enemy, enemy.type === 'elite' ? ELITE_RADIUS : ENEMY_RADIUS);
 
         // Attack
         if (minDist < PLAYER_RADIUS + (enemy.type === 'elite' ? ELITE_RADIUS : ENEMY_RADIUS) + 5) {
@@ -503,19 +770,19 @@ function handleSpawning(gs) {
     let spawnZone, count, interval, includeElites = false;
     switch (gs.phase) {
         case 'objective1':
-            spawnZone = 'ship'; count = 2 + Math.floor(Math.random() * 2); interval = 5;
+            spawnZone = 'cockpit_room'; count = 2 + Math.floor(Math.random() * 2); interval = 5;
             break;
         case 'objective2':
-            spawnZone = 'beacon'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
+            spawnZone = 'left_3'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
             break;
         case 'objective3':
-            spawnZone = 'satellite'; count = 4 + Math.floor(Math.random() * 2); interval = 3;
+            spawnZone = 'right_3'; count = 4 + Math.floor(Math.random() * 2); interval = 3;
             includeElites = true;
             break;
         case 'boss':
             return; // Boss handles its own adds
         case 'final':
-            spawnZone = 'ship'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
+            spawnZone = 'engine'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
             break;
         default:
             return;
@@ -523,7 +790,7 @@ function handleSpawning(gs) {
 
     if (gs.enemies.size > 20) return; // Cap enemies
 
-    const points = SPAWN_POINTS[spawnZone] || SPAWN_POINTS.ship;
+    const points = SPAWN_POINTS[spawnZone] || SPAWN_POINTS.corridor;
     for (let i = 0; i < count; i++) {
         const sp = points[Math.floor(Math.random() * points.length)];
         const type = includeElites && Math.random() < 0.3 ? 'elite' : 'common';
@@ -534,8 +801,9 @@ function handleSpawning(gs) {
 
 // ======================== BOSS AI ========================
 function spawnBoss(gs) {
+    // ── MAP INTEGRATION: boss spawns in engine room (scaled) ──
     gs.boss = {
-        x: 1100, y: 250,
+        x: 512 * MAP_SCALE, y: 850 * MAP_SCALE,
         hp: 2000, maxHp: 2000,
         phase: 0,
         attackCd: 2,
@@ -664,9 +932,10 @@ function updateBoss(gs) {
         boss.y += Math.sin(angle) * 40 * DT;
     }
 
-    // Keep boss in exterior zone
-    boss.x = Math.max(870, Math.min(1380, boss.x));
-    boss.y = Math.max(70, Math.min(430, boss.y));
+    // ── MAP INTEGRATION: keep boss in engine room (scaled) ──
+    constrainToMap(gs, boss, BOSS_RADIUS);
+    boss.x = Math.max(100 * MAP_SCALE, Math.min(924 * MAP_SCALE, boss.x));
+    boss.y = Math.max(770 * MAP_SCALE, Math.min(960 * MAP_SCALE, boss.y));
 }
 
 function damageBoss(gs, amount, player) {
@@ -806,7 +1075,7 @@ function completeObjective(gs, room) {
             gs.phase = 'objective2';
             gs.phaseTimer = 0;
             gs.enemyDmgBase = 12;
-            gs.events.push({ type: 'announcement', text: 'CORE STABILIZED! HATCH UNLOCKED!', duration: 3, color: '#06d6a0' });
+            gs.events.push({ type: 'announcement', text: 'CORE STABILIZED! RESTORE LEFT GRID!', duration: 3, color: '#06d6a0' });
             break;
 
         case 'objective2':
@@ -814,7 +1083,7 @@ function completeObjective(gs, room) {
             gs.phaseTimer = 0;
             gs.enemyDmgBase = 15;
             gs.enemySpeedBase = 110;
-            gs.events.push({ type: 'announcement', text: 'BEACON ACTIVE! ENEMIES ALERTED!', duration: 3, color: '#ffd166' });
+            gs.events.push({ type: 'announcement', text: 'LEFT GRID ONLINE! RESTORE RIGHT GRID!', duration: 3, color: '#ffd166' });
             break;
 
         case 'objective3':
@@ -843,14 +1112,14 @@ function angleDiff(a, b) {
     return d;
 }
 
-function constrainToMap(gs, player) {
-    const r = PLAYER_RADIUS;
+function constrainToMap(gs, entity, r = PLAYER_RADIUS) {
     let valid = false;
 
+    // ── MAP INTEGRATION START ──
+    // Step 1: Must be inside at least one walkable zone
     for (const zone of MAP_ZONES) {
-        if (zone.id === 'doorway' && !gs.doorUnlocked) continue;
-        if (player.x + r > zone.x && player.x - r < zone.x + zone.w &&
-            player.y + r > zone.y && player.y - r < zone.y + zone.h) {
+        if (entity.x + r > zone.x && entity.x - r < zone.x + zone.w &&
+            entity.y + r > zone.y && entity.y - r < zone.y + zone.h) {
             valid = true;
             break;
         }
@@ -860,26 +1129,67 @@ function constrainToMap(gs, player) {
         // Push back into nearest valid zone
         let bestZone = null, bestDist = Infinity;
         for (const zone of MAP_ZONES) {
-            if (zone.id === 'doorway' && !gs.doorUnlocked) continue;
-            const cx = Math.max(zone.x + r, Math.min(zone.x + zone.w - r, player.x));
-            const cy = Math.max(zone.y + r, Math.min(zone.y + zone.h - r, player.y));
-            const d = distance(player, { x: cx, y: cy });
+            const cx = Math.max(zone.x + r, Math.min(zone.x + zone.w - r, entity.x));
+            const cy = Math.max(zone.y + r, Math.min(zone.y + zone.h - r, entity.y));
+            const d = distance(entity, { x: cx, y: cy });
             if (d < bestDist) { bestDist = d; bestZone = zone; }
         }
         if (bestZone) {
-            player.x = Math.max(bestZone.x + r, Math.min(bestZone.x + bestZone.w - r, player.x));
-            player.y = Math.max(bestZone.y + r, Math.min(bestZone.y + bestZone.h - r, player.y));
+            entity.x = Math.max(bestZone.x + r, Math.min(bestZone.x + bestZone.w - r, entity.x));
+            entity.y = Math.max(bestZone.y + r, Math.min(bestZone.y + bestZone.h - r, entity.y));
         }
     }
+
+    // Step 2: Push out of obstacles (equipment blocks + engine circles)
+    for (const obs of OBSTACLES) {
+        if (obs.type === 'rect') {
+            const closestX = Math.max(obs.x, Math.min(obs.x + obs.w, entity.x));
+            const closestY = Math.max(obs.y, Math.min(obs.y + obs.h, entity.y));
+            const dx = entity.x - closestX;
+            const dy = entity.y - closestY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < r) {
+                if (dist === 0) {
+                    const pL = entity.x - obs.x;
+                    const pR = (obs.x + obs.w) - entity.x;
+                    const pU = entity.y - obs.y;
+                    const pD = (obs.y + obs.h) - entity.y;
+                    const m = Math.min(pL, pR, pU, pD);
+                    if (m === pL) entity.x = obs.x - r;
+                    else if (m === pR) entity.x = obs.x + obs.w + r;
+                    else if (m === pU) entity.y = obs.y - r;
+                    else entity.y = obs.y + obs.h + r;
+                } else {
+                    const overlap = r - dist;
+                    entity.x += (dx / dist) * overlap;
+                    entity.y += (dy / dist) * overlap;
+                }
+            }
+        } else if (obs.type === 'circle') {
+            const dx = entity.x - obs.x;
+            const dy = entity.y - obs.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < r + obs.r) {
+                const overlap = (r + obs.r) - dist;
+                if (dist > 0) {
+                    entity.x += (dx / dist) * overlap;
+                    entity.y += (dy / dist) * overlap;
+                } else {
+                    entity.x += r + obs.r;
+                }
+            }
+        }
+    }
+    // ── MAP INTEGRATION END ──
 }
 
 function respawnPlayer(gs, player) {
     const role = ROLES[player.role];
     player.alive = true;
     player.hp = Math.floor(role.hp * 0.5);
-    // Respawn at ship start
-    player.x = 300 + Math.random() * 200;
-    player.y = 200 + Math.random() * 100;
+    // ── MAP INTEGRATION: respawn in central corridor (scaled) ──
+    player.x = (490 + Math.random() * 44) * MAP_SCALE;
+    player.y = (680 + Math.random() * 40) * MAP_SCALE;
     player.attackCd = 0;
 }
 

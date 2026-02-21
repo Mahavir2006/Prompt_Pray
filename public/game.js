@@ -10,18 +10,79 @@
         medic: '#ef476f'
     };
 
+    // ── MAP INTEGRATION START ──
+    const MAP_SCALE = 3;
     const MAP_ZONES = [
-        { id: 'ship', x: 50, y: 50, w: 700, h: 400, color: '#0e1a2b', border: '#1a3a5c', label: 'SHIP INTERIOR' },
-        { id: 'doorway', x: 750, y: 175, w: 100, h: 150, color: '#121e30', border: '#1a3a5c' },
-        { id: 'exterior', x: 850, y: 50, w: 550, h: 400, color: '#0a1420', border: '#142640', label: 'EXTERIOR' },
-        { id: 'corridor1', x: 1400, y: 150, w: 550, h: 200, color: '#080f18', border: '#142640' },
-        { id: 'beacon', x: 1950, y: 50, w: 550, h: 400, color: '#0a1420', border: '#142640', label: 'BEACON SITE' },
-        { id: 'corridor2', x: 2500, y: 150, w: 550, h: 200, color: '#080f18', border: '#142640' },
-        { id: 'satellite', x: 3050, y: 50, w: 550, h: 400, color: '#0a1420', border: '#142640', label: 'SATELLITE SITE' }
+        { id: 'cockpit', x: 420, y: 40, w: 184, h: 120 },
+        { id: 'cockpit_room', x: 300, y: 160, w: 424, h: 130 },
+        { id: 'corridor', x: 475, y: 160, w: 74, h: 800 },
+        { id: 'left_1', x: 255, y: 290, w: 240, h: 80 },
+        { id: 'left_2', x: 210, y: 370, w: 285, h: 80 },
+        { id: 'left_3', x: 170, y: 450, w: 325, h: 80 },
+        { id: 'left_4', x: 140, y: 530, w: 355, h: 80 },
+        { id: 'left_5', x: 110, y: 610, w: 385, h: 80 },
+        { id: 'left_6', x: 80, y: 690, w: 415, h: 70 },
+        { id: 'right_1', x: 529, y: 290, w: 240, h: 80 },
+        { id: 'right_2', x: 529, y: 370, w: 285, h: 80 },
+        { id: 'right_3', x: 529, y: 450, w: 325, h: 80 },
+        { id: 'right_4', x: 529, y: 530, w: 355, h: 80 },
+        { id: 'right_5', x: 529, y: 610, w: 385, h: 80 },
+        { id: 'right_6', x: 529, y: 690, w: 415, h: 70 },
+        { id: 'engine', x: 60, y: 760, w: 904, h: 220 },
+        { id: 'wing_left', x: 5, y: 430, w: 55, h: 100 },
+        { id: 'wing_right', x: 964, y: 430, w: 55, h: 100 },
     ];
+    MAP_ZONES.forEach(z => { z.x *= MAP_SCALE; z.y *= MAP_SCALE; z.w *= MAP_SCALE; z.h *= MAP_SCALE; });
 
-    const WORLD_W = 3650;
-    const WORLD_H = 500;
+    const OBSTACLES = [];
+
+    // Fetch precise collisions from Tiled JSON
+    fetch('/assets/ship_collisions.json').then(r => r.json()).then(mapData => {
+        const collisionLayer = mapData.layers.find(layer => layer.name === 'collisions');
+        if (collisionLayer && collisionLayer.objects) {
+            collisionLayer.objects.forEach(obj => {
+                if (obj.width === 0 && obj.height === 0) return;
+
+                let aabbX = obj.x;
+                let aabbY = obj.y;
+                let aabbW = obj.width;
+                let aabbH = obj.height;
+
+                if (obj.rotation) {
+                    const rad = obj.rotation * (Math.PI / 180);
+                    const cos = Math.cos(rad);
+                    const sin = Math.sin(rad);
+
+                    const c1 = { x: 0, y: 0 };
+                    const c2 = { x: obj.width * cos, y: obj.width * sin };
+                    const c3 = { x: -obj.height * sin, y: obj.height * cos };
+                    const c4 = { x: obj.width * cos - obj.height * sin, y: obj.width * sin + obj.height * cos };
+
+                    const minX = Math.min(c1.x, c2.x, c3.x, c4.x);
+                    const maxX = Math.max(c1.x, c2.x, c3.x, c4.x);
+                    const minY = Math.min(c1.y, c2.y, c3.y, c4.y);
+                    const maxY = Math.max(c1.y, c2.y, c3.y, c4.y);
+
+                    aabbX = obj.x + minX;
+                    aabbY = obj.y + minY;
+                    aabbW = maxX - minX;
+                    aabbH = maxY - minY;
+                }
+
+                OBSTACLES.push({
+                    type: 'rect',
+                    x: aabbX * MAP_SCALE,
+                    y: aabbY * MAP_SCALE,
+                    w: aabbW * MAP_SCALE,
+                    h: aabbH * MAP_SCALE
+                });
+            });
+        }
+    }).catch(e => console.error('Failed to load ship_collisions.json', e));
+
+    const WORLD_W = 1024 * MAP_SCALE;
+    const WORLD_H = 1024 * MAP_SCALE;
+    // ── MAP INTEGRATION END ──
 
     // ======================== STATE ========================
     let ws = null;
@@ -71,6 +132,10 @@
     const roleSprites = {};
     let spritesLoaded = 0;
     let totalSprites = 0;
+
+    // ── MAP INTEGRATION: load map background ──
+    const mapBgImage = loadImg('/assets/map.png');
+    let debugMode = false;
 
     function loadImg(src) {
         totalSprites++;
@@ -434,6 +499,8 @@
         if (k === 'e') interacting = true;
         if (k === 'q') abilityPressed = true;
         if (k === 'tab') { tabDown = true; e.preventDefault(); }
+        // ── MAP INTEGRATION: debug toggle ──
+        if (k === 'f3') { debugMode = !debugMode; e.preventDefault(); }
     });
 
     window.addEventListener('keyup', (e) => {
@@ -478,6 +545,15 @@
         const targetY = me.y;
         camX += (targetX - camX) * 0.1;
         camY += (targetY - camY) * 0.1;
+
+        // ── MAP INTEGRATION: clamp camera to world bounds ──
+        const halfW = canvas.width / 2;
+        const halfH = canvas.height / 2;
+        camX = Math.max(halfW, Math.min(WORLD_W - halfW, camX));
+        camY = Math.max(halfH, Math.min(WORLD_H - halfH, camY));
+        // If canvas is larger than world, center it
+        if (canvas.width >= WORLD_W) camX = WORLD_W / 2;
+        if (canvas.height >= WORLD_H) camY = WORLD_H / 2;
 
         // Camera shake
         if (camShakeIntensity > 0) {
@@ -541,8 +617,8 @@
 
         updateCamera(dt);
 
-        // Background
-        ctx.fillStyle = '#030308';
+        // Background (black void around ship)
+        ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // Draw distant stars
@@ -592,65 +668,79 @@
         updateHUD();
     }
 
+    // ── MAP INTEGRATION START ──
     function drawMap() {
-        for (const zone of MAP_ZONES) {
-            if (zone.id === 'doorway' && gameState && !gameState.doorUnlocked) {
-                // Draw locked door
-                const s = worldToScreen(zone.x, zone.y);
-                ctx.fillStyle = '#2a1a1a';
-                ctx.fillRect(s.x, s.y, zone.w, zone.h);
-                ctx.strokeStyle = '#e63946';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.strokeRect(s.x, s.y, zone.w, zone.h);
-                ctx.setLineDash([]);
+        // Draw the spaceship map image as the base layer
+        const s = worldToScreen(0, 0);
+        if (mapBgImage.complete && mapBgImage.naturalWidth > 0) {
+            ctx.drawImage(mapBgImage, s.x, s.y, WORLD_W, WORLD_H);
+        }
 
-                // Lock icon
-                ctx.fillStyle = '#e63946';
-                ctx.font = '16px Orbitron';
-                ctx.textAlign = 'center';
-                ctx.fillText('🔒', s.x + zone.w / 2, s.y + zone.h / 2 + 6);
-                continue;
+        // Debug overlay (toggled with F3 key)
+        if (debugMode) {
+            ctx.save();
+            // Draw walkable zones (green outlines)
+            for (const zone of MAP_ZONES) {
+                const zs = worldToScreen(zone.x, zone.y);
+                ctx.fillStyle = 'rgba(0,255,0,0.08)';
+                ctx.fillRect(zs.x, zs.y, zone.w, zone.h);
+                ctx.strokeStyle = 'rgba(0,255,0,0.6)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(zs.x, zs.y, zone.w, zone.h);
+                // Zone label
+                ctx.fillStyle = 'rgba(0,255,0,0.7)';
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(zone.id, zs.x + 3, zs.y + 11);
             }
-
-            const s = worldToScreen(zone.x, zone.y);
-            // Zone fill
-            ctx.fillStyle = zone.color;
-            ctx.fillRect(s.x, s.y, zone.w, zone.h);
-
-            // Zone border
-            ctx.strokeStyle = zone.border;
-            ctx.lineWidth = 2;
-            ctx.strokeRect(s.x, s.y, zone.w, zone.h);
-
-            // Grid pattern
-            ctx.strokeStyle = 'rgba(26,58,92,0.15)';
-            ctx.lineWidth = 0.5;
-            for (let gx = zone.x; gx < zone.x + zone.w; gx += 40) {
-                const gs = worldToScreen(gx, zone.y);
-                ctx.beginPath();
-                ctx.moveTo(gs.x, gs.y);
-                ctx.lineTo(gs.x, gs.y + zone.h);
-                ctx.stroke();
+            // Draw obstacles (red outlines)
+            for (const obs of OBSTACLES) {
+                if (obs.type === 'rect') {
+                    const os = worldToScreen(obs.x, obs.y);
+                    ctx.fillStyle = 'rgba(255,0,0,0.1)';
+                    ctx.fillRect(os.x, os.y, obs.w, obs.h);
+                    ctx.strokeStyle = 'rgba(255,60,60,0.8)';
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeRect(os.x, os.y, obs.w, obs.h);
+                } else if (obs.type === 'circle') {
+                    const os = worldToScreen(obs.x, obs.y);
+                    ctx.fillStyle = 'rgba(255,0,0,0.1)';
+                    ctx.beginPath();
+                    ctx.arc(os.x, os.y, obs.r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(255,60,60,0.8)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
             }
-            for (let gy = zone.y; gy < zone.y + zone.h; gy += 40) {
-                const gs = worldToScreen(zone.x, gy);
-                ctx.beginPath();
-                ctx.moveTo(gs.x, gs.y);
-                ctx.lineTo(gs.x + zone.w, gs.y);
-                ctx.stroke();
+            // Draw doorway connection points (yellow dots at zone overlaps along corridor)
+            const corridorZone = MAP_ZONES.find(z => z.id === 'corridor');
+            if (corridorZone) {
+                const doorYs = [290, 370, 450, 530, 610, 690, 760];
+                for (const dy of doorYs) {
+                    // Left doorway
+                    const dl = worldToScreen(corridorZone.x, dy);
+                    ctx.fillStyle = '#ffdd00';
+                    ctx.beginPath();
+                    ctx.arc(dl.x, dl.y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Right doorway
+                    const dr = worldToScreen(corridorZone.x + corridorZone.w, dy);
+                    ctx.fillStyle = '#ffdd00';
+                    ctx.beginPath();
+                    ctx.arc(dr.x, dr.y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
-
-            // Zone label
-            if (zone.label) {
-                const ls = worldToScreen(zone.x + zone.w / 2, zone.y + 20);
-                ctx.fillStyle = 'rgba(255,255,255,0.08)';
-                ctx.font = '12px Orbitron';
-                ctx.textAlign = 'center';
-                ctx.fillText(zone.label, ls.x, ls.y);
-            }
+            // Debug label
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText('DEBUG MODE (F3)', 10, canvas.height - 10);
+            ctx.restore();
         }
     }
+    // ── MAP INTEGRATION END ──
 
     function drawObjective() {
         if (!gameState.objective) return;
@@ -1267,27 +1357,28 @@
         ctx.globalAlpha = 1;
     }
 
+    // ── MAP INTEGRATION: square minimap for 1024x1024 world ──
     function drawMinimap() {
-        const mmW = 180;
-        const mmH = 45;
+        const mmW = 140;
+        const mmH = 140;
         const mmX = canvas.width - mmW - 16;
         const mmY = 16;
         const scale = mmW / WORLD_W;
 
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        // Background — draw scaled map image or fallback
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
         ctx.fillRect(mmX, mmY, mmW, mmH);
+        if (mapBgImage.complete && mapBgImage.naturalWidth > 0) {
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(mapBgImage, mmX, mmY, mmW, mmH);
+            ctx.globalAlpha = 1;
+        }
         ctx.strokeStyle = 'rgba(76,201,240,0.3)';
         ctx.lineWidth = 1;
         ctx.strokeRect(mmX, mmY, mmW, mmH);
 
-        // Zones
         const me = gameState.players.find(p => p.id === myId);
         const isScout = me?.role === 'scout';
-
-        for (const zone of MAP_ZONES) {
-            ctx.fillStyle = 'rgba(26,58,92,0.3)';
-            ctx.fillRect(mmX + zone.x * scale, mmY + zone.y * scale, zone.w * scale, zone.h * scale);
-        }
 
         // Enemies (Scout sees all, others see nearby)
         for (const e of gameState.enemies) {
