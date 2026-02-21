@@ -241,24 +241,22 @@ const SPAWN_POINTS = {
 
 // ── FAST A* PATHFINDING START ──
 const PF_CELL = 32;
-let navGrid = [];
-let PF_W = 0;
-let PF_H = 0;
+let navGrids = { ship: { grid: [], w: 0, h: 0 }, planet: { grid: [], w: 0, h: 0 } };
 
-function buildNavGrid() {
-    PF_W = Math.ceil((1024 * MAP_SCALE) / PF_CELL);
-    PF_H = Math.ceil((1024 * MAP_SCALE) / PF_CELL);
-    navGrid = new Array(PF_W * PF_H).fill(false);
+function buildNavGridForMap(mapName, width, height, zones, obstacles) {
+    const w = Math.ceil(width / PF_CELL);
+    const h = Math.ceil(height / PF_CELL);
+    const grid = new Array(w * h).fill(false);
     let r = ENEMY_RADIUS;
 
-    for (let y = 0; y < PF_H; y++) {
-        for (let x = 0; x < PF_W; x++) {
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
             let cx = x * PF_CELL + PF_CELL / 2;
             let cy = y * PF_CELL + PF_CELL / 2;
-            let idx = y * PF_W + x;
+            let idx = y * w + x;
 
             let inZone = false;
-            for (const zone of MAP_ZONES) {
+            for (const zone of zones) {
                 if (cx >= zone.x && cx <= zone.x + zone.w &&
                     cy >= zone.y && cy <= zone.y + zone.h) {
                     inZone = true;
@@ -268,7 +266,7 @@ function buildNavGrid() {
             if (!inZone) continue;
 
             let hitObs = false;
-            for (const obs of OBSTACLES) {
+            for (const obs of obstacles) {
                 if (obs.type === 'rect') {
                     const closestX = Math.max(obs.x, Math.min(obs.x + obs.w, cx));
                     const closestY = Math.max(obs.y, Math.min(obs.y + obs.h, cy));
@@ -277,13 +275,24 @@ function buildNavGrid() {
                     if (Math.hypot(cx - obs.x, cy - obs.y) < r + obs.r) { hitObs = true; break; }
                 }
             }
-            if (!hitObs) navGrid[idx] = true;
+            if (!hitObs) grid[idx] = true;
         }
     }
+    navGrids[mapName] = { grid, w, h };
 }
-buildNavGrid();
 
-function findPath(startX, startY, endX, endY) {
+function buildNavGrids() {
+    buildNavGridForMap('ship', 1024 * MAP_SCALE, 1024 * MAP_SCALE, MAP_ZONES, OBSTACLES);
+    buildNavGridForMap('planet', PLANET_W, PLANET_H, PLANET_MAP_ZONES, PLANET_OBSTACLES);
+}
+buildNavGrids();
+
+function findPath(mapName, startX, startY, endX, endY) {
+    const mapData = navGrids[mapName] || navGrids['ship'];
+    const PF_W = mapData.w;
+    const PF_H = mapData.h;
+    const navGrid = mapData.grid;
+
     let sx = Math.floor(startX / PF_CELL);
     let sy = Math.floor(startY / PF_CELL);
     let ex = Math.floor(endX / PF_CELL);
@@ -825,7 +834,7 @@ function updateEnemies(gs) {
         let moveTargetY = target.y;
 
         if (enemy.pathTimer <= 0 || !enemy.path) {
-            enemy.path = findPath(enemy.x, enemy.y, target.x, target.y);
+            enemy.path = findPath(enemy.currentMap || 'ship', enemy.x, enemy.y, target.x, target.y);
             enemy.pathTimer = 0.5 + Math.random() * 0.2; // Recalculate ~twice a second
         }
 
