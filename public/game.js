@@ -64,6 +64,70 @@
         });
     }
 
+    // ======================== VANGUARD SPRITES ========================
+    const DIRS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+    const SPRITE_SCALE = 3; // scale up pixel art
+    const vanguardSprites = { idle: {}, walk: {}, death: {}, sword: {} };
+    let spritesLoaded = 0;
+    let totalSprites = 0;
+
+    function loadImg(src) {
+        totalSprites++;
+        const img = new Image();
+        img.src = src;
+        img.onload = () => spritesLoaded++;
+        return img;
+    }
+
+    // Idle rotations
+    DIRS.forEach(dir => {
+        vanguardSprites.idle[dir] = loadImg(`/assets/vanguard/rotations/${dir}.png`);
+    });
+
+    // Walk animation (6 frames per direction)
+    DIRS.forEach(dir => {
+        vanguardSprites.walk[dir] = [];
+        for (let i = 0; i < 6; i++) {
+            vanguardSprites.walk[dir].push(loadImg(`/assets/vanguard/animations/walk/${dir}/frame_${String(i).padStart(3, '0')}.png`));
+        }
+    });
+
+    // Death animation (7 frames per direction)
+    DIRS.forEach(dir => {
+        vanguardSprites.death[dir] = [];
+        for (let i = 0; i < 7; i++) {
+            vanguardSprites.death[dir].push(loadImg(`/assets/vanguard/animations/falling-back-death/${dir}/frame_${String(i).padStart(3, '0')}.png`));
+        }
+    });
+
+    // Sword rotations
+    DIRS.forEach(dir => {
+        vanguardSprites.sword[dir] = loadImg(`/assets/sword-vanguard/rotations/${dir}.png`);
+    });
+
+    // Per-player animation tracking
+    const playerAnimState = {};
+    function getAnimState(id) {
+        if (!playerAnimState[id]) {
+            playerAnimState[id] = { walkFrame: 0, walkTimer: 0, deathFrame: 0, deathTimer: 0, deathDone: false, prevX: 0, prevY: 0 };
+        }
+        return playerAnimState[id];
+    }
+
+    // Convert angle to 8-direction name
+    function angleToDir(angle) {
+        // angle is in radians, 0 = east
+        const deg = ((angle * 180 / Math.PI) + 360) % 360;
+        if (deg >= 337.5 || deg < 22.5) return 'east';
+        if (deg >= 22.5 && deg < 67.5) return 'south-east';
+        if (deg >= 67.5 && deg < 112.5) return 'south';
+        if (deg >= 112.5 && deg < 157.5) return 'south-west';
+        if (deg >= 157.5 && deg < 202.5) return 'west';
+        if (deg >= 202.5 && deg < 247.5) return 'north-west';
+        if (deg >= 247.5 && deg < 292.5) return 'north';
+        return 'north-east';
+    }
+
     // ======================== CANVAS SETUP ========================
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -91,16 +155,18 @@
 
     // ======================== LOBBY LOGIC ========================
     document.getElementById('createBtn').onclick = () => {
-        const name = document.getElementById('nameInput').value.trim() || 'Pilot';
+        const name = document.getElementById('nameInput').value.trim();
+        if (!name) return showError('Enter a Callsign');
         connect(() => {
             ws.send(JSON.stringify({ type: 'createRoom', name }));
         });
     };
 
     document.getElementById('joinBtn').onclick = () => {
-        const name = document.getElementById('nameInput').value.trim() || 'Pilot';
+        const name = document.getElementById('nameInput').value.trim();
+        if (!name) return showError('Enter a Callsign');
         const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
-        if (!code) return showError('Enter a room code');
+        if (!code) return showError('Enter a Room Code');
         connect(() => {
             ws.send(JSON.stringify({ type: 'joinRoom', name, roomCode: code }));
         });
@@ -154,7 +220,9 @@
             card.classList.toggle('taken', takenRoles.has(role));
         });
 
+        const isHost = myPlayer?.isHost;
         const readyBtn = document.getElementById('readyBtn');
+        readyBtn.style.display = isHost ? 'none' : 'inline-block';
         readyBtn.classList.toggle('active', myPlayer?.ready);
         readyBtn.textContent = myPlayer?.ready ? '✓ READY' : 'READY';
 
@@ -169,7 +237,6 @@
     `).join('');
 
         const startBtn = document.getElementById('startBtn');
-        const isHost = myPlayer?.isHost;
         startBtn.style.display = isHost ? 'inline-block' : 'none';
         startBtn.disabled = !data.canStart;
     }
@@ -501,7 +568,7 @@
         drawProjectiles();
 
         // Draw players
-        drawPlayers();
+        drawPlayers(dt);
 
         // Draw particles
         drawParticles();
@@ -643,7 +710,7 @@
         }
     }
 
-    function drawPlayers() {
+    function drawPlayers(dt) {
         if (!gameState) return;
 
         for (const p of gameState.players) {
@@ -652,7 +719,41 @@
             const isMe = p.id === myId;
 
             if (!p.alive) {
-                // Ghost effect
+                if (p.role === 'vanguard') {
+                    // Play death animation
+                    const anim = getAnimState(p.id);
+                    const dir = anim.lastDir || 'south';
+                    const frames = vanguardSprites.death[dir];
+                    if (frames && frames.length > 0) {
+                        if (!anim.deathDone) {
+                            anim.deathTimer += 0.016; // ~60fps
+                            if (anim.deathTimer >= 0.1) {
+                                anim.deathTimer = 0;
+                                if (anim.deathFrame < frames.length - 1) anim.deathFrame++;
+                                else anim.deathDone = true;
+                            }
+                        }
+                        const frame = frames[anim.deathFrame];
+                        if (frame && frame.complete && frame.naturalWidth > 0) {
+                            ctx.globalAlpha = 0.7;
+                            const sw = frame.naturalWidth * SPRITE_SCALE;
+                            const sh = frame.naturalHeight * SPRITE_SCALE;
+                            ctx.imageSmoothingEnabled = false;
+                            ctx.drawImage(frame, s.x - sw / 2, s.y - sh / 2, sw, sh);
+                            ctx.imageSmoothingEnabled = true;
+                            ctx.globalAlpha = 1;
+                        }
+                    }
+                    // Respawn timer
+                    if (p.respawnTimer > 0) {
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '12px Orbitron';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(p.respawnTimer.toFixed(1) + 's', s.x, s.y + 4);
+                    }
+                    continue;
+                }
+                // Ghost effect for other roles
                 ctx.globalAlpha = 0.3;
                 ctx.fillStyle = '#666';
                 ctx.beginPath();
@@ -681,16 +782,19 @@
             ctx.strokeStyle = isMe ? '#fff' : 'rgba(255,255,255,0.3)';
             ctx.lineWidth = isMe ? 2.5 : 1;
 
-            switch (p.role) {
-                case 'vanguard': drawHexagon(s.x, s.y, 18); break;
-                case 'engineer': drawSquare(s.x, s.y, 16); break;
-                case 'scout': drawDiamond(s.x, s.y, 18); break;
-                case 'medic': drawCross(s.x, s.y, 16); break;
-                default:
-                    ctx.beginPath();
-                    ctx.arc(s.x, s.y, 16, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.stroke();
+            if (p.role === 'vanguard') {
+                drawVanguardSprite(p, s, isMe, dt);
+            } else {
+                switch (p.role) {
+                    case 'engineer': drawSquare(s.x, s.y, 16); break;
+                    case 'scout': drawDiamond(s.x, s.y, 18); break;
+                    case 'medic': drawCross(s.x, s.y, 16); break;
+                    default:
+                        ctx.beginPath();
+                        ctx.arc(s.x, s.y, 16, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+                }
             }
 
             ctx.shadowBlur = 0;
@@ -711,7 +815,7 @@
 
             // Name tag
             ctx.fillStyle = 'rgba(255,255,255,0.7)';
-            ctx.font = '10px Rajdhani';
+            ctx.font = '10px Orbitron';
             ctx.textAlign = 'center';
             ctx.fillText(p.name, s.x, s.y - 30);
 
@@ -747,6 +851,140 @@
                     ctx.stroke();
                     ctx.setLineDash([]);
                 }
+            }
+        }
+    }
+
+    function drawVanguardSprite(p, s, isMe, dt) {
+        const anim = getAnimState(p.id);
+
+        // Determine facing direction from mouse (if local) or movement
+        let facingAngle;
+        if (isMe) {
+            facingAngle = Math.atan2(
+                (mouseY + camY - canvas.height / 2) - p.y,
+                (mouseX + camX - canvas.width / 2) - p.x
+            );
+        } else {
+            const dx = p.x - (anim.prevX || p.x);
+            const dy = p.y - (anim.prevY || p.y);
+            if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                facingAngle = Math.atan2(dy, dx);
+            } else {
+                facingAngle = anim.lastAngle || 0;
+            }
+        }
+        anim.lastAngle = facingAngle;
+        const dir = angleToDir(facingAngle);
+        anim.lastDir = dir;
+
+        // Check if moving — use input keys for local, position delta for remote
+        const dx = p.x - (anim.prevX || p.x);
+        const dy = p.y - (anim.prevY || p.y);
+        let isMoving;
+        if (isMe) {
+            // Local player: check if any movement key is held
+            isMoving = keys.w || keys.a || keys.s || keys.d;
+        } else {
+            // Remote player: detect from position changes with grace period
+            if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+                anim.moveGrace = 0.15; // keep walking for 150ms after last move
+            }
+            if (anim.moveGrace > 0) {
+                anim.moveGrace -= dt;
+                isMoving = true;
+            } else {
+                isMoving = false;
+            }
+        }
+        anim.prevX = p.x;
+        anim.prevY = p.y;
+
+        // Reset death anim if alive
+        anim.deathFrame = 0;
+        anim.deathTimer = 0;
+        anim.deathDone = false;
+
+        let sprite;
+        if (isMoving && vanguardSprites.walk[dir]) {
+            // Animate walk at 10fps
+            anim.walkTimer += dt;
+            if (anim.walkTimer >= 0.1) {
+                anim.walkTimer = 0;
+                anim.walkFrame = (anim.walkFrame + 1) % 6;
+            }
+            sprite = vanguardSprites.walk[dir][anim.walkFrame];
+        } else {
+            // Idle
+            anim.walkFrame = 0;
+            anim.walkTimer = 0;
+            sprite = vanguardSprites.idle[dir];
+        }
+
+        // Draw the character sprite
+        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            const sw = sprite.naturalWidth * SPRITE_SCALE;
+            const sh = sprite.naturalHeight * SPRITE_SCALE;
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(sprite, s.x - sw / 2, s.y - sh / 2, sw, sh);
+            ctx.imageSmoothingEnabled = true;
+        } else {
+            // Fallback hexagon while loading
+            ctx.fillStyle = '#4cc9f0';
+            ctx.strokeStyle = isMe ? '#fff' : 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = isMe ? 2.5 : 1;
+            drawHexagon(s.x, s.y, 18);
+        }
+
+        // Draw sword sprite — always visible, smaller, with tilt
+        const swordSprite = vanguardSprites.sword[dir];
+        if (swordSprite && swordSprite.complete && swordSprite.naturalWidth > 0) {
+            const SWORD_SCALE = 2; // smaller than character
+            const swordOffsetDist = 20;
+            const swordOffsetX = Math.cos(facingAngle) * swordOffsetDist;
+            const swordOffsetY = Math.sin(facingAngle) * swordOffsetDist;
+            const swW = swordSprite.naturalWidth * SWORD_SCALE;
+            const swH = swordSprite.naturalHeight * SWORD_SCALE;
+
+            // Determine tilt: +30° normally, -30° when moving left
+            const movingLeft = dx < -0.3;
+            const tiltAngle = movingLeft ? (-30 * Math.PI / 180) : (30 * Math.PI / 180);
+
+            // Swing animation on click
+            if (!anim.swingTimer) anim.swingTimer = 0;
+            if (mouseDown && isMe) {
+                anim.swingTimer = Math.min(anim.swingTimer + dt * 8, 1);
+            } else {
+                anim.swingTimer = Math.max(anim.swingTimer - dt * 5, 0);
+            }
+            const swingExtra = anim.swingTimer * (45 * Math.PI / 180); // extra 45° swing on attack
+
+            ctx.save();
+            ctx.translate(s.x + swordOffsetX, s.y + swordOffsetY);
+            ctx.rotate(facingAngle + tiltAngle + swingExtra);
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(swordSprite, -swW / 2, -swH / 2, swW, swH);
+            ctx.imageSmoothingEnabled = true;
+            ctx.restore();
+
+            // On click, show damage radius indicator (1 tile = 40px)
+            if (mouseDown && isMe) {
+                const hitX = s.x + Math.cos(facingAngle) * 35;
+                const hitY = s.y + Math.sin(facingAngle) * 35;
+                ctx.strokeStyle = `rgba(76,201,240,${0.3 + anim.swingTimer * 0.3})`;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath();
+                ctx.arc(hitX, hitY, 40, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Slash arc effect
+                ctx.strokeStyle = `rgba(76,201,240,${0.5 * anim.swingTimer})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, 38, facingAngle - 0.5, facingAngle + 0.5);
+                ctx.stroke();
             }
         }
     }
@@ -1100,19 +1338,19 @@
         ctx.strokeRect(x, y, w, h);
 
         ctx.fillStyle = '#4cc9f0';
-        ctx.font = '11px Orbitron';
+        ctx.font = '12px Orbitron';
         ctx.textAlign = 'center';
         ctx.fillText('SQUAD STATUS', x + w / 2, y + 20);
 
         gameState.players.forEach((p, i) => {
             const py = y + 34 + i * 36;
             ctx.fillStyle = ROLE_COLORS[p.role] || '#fff';
-            ctx.font = '12px Rajdhani';
+            ctx.font = '12px Orbitron';
             ctx.textAlign = 'left';
             ctx.fillText(`${p.name} [${p.role?.toUpperCase()}]`, x + 12, py + 12);
 
             ctx.fillStyle = 'rgba(255,255,255,0.5)';
-            ctx.font = '10px Rajdhani';
+            ctx.font = '10px Orbitron';
             ctx.textAlign = 'left';
             ctx.fillText(
                 `HP: ${Math.round(p.hp)}/${p.maxHp}  ⚔${Math.round(p.score?.damageDealt || 0)}  ♥${Math.round(p.score?.healingDone || 0)}  ☠${p.score?.enemiesKilled || 0}`,
@@ -1211,10 +1449,10 @@
 
             // Text
             ctx.fillStyle = '#4cc9f0';
-            ctx.font = '14px Orbitron';
+            ctx.font = 'bold 14px Rajdhani';
             ctx.textAlign = 'center';
             ctx.globalAlpha = Math.min(1, cinematicTimer);
-            ctx.fillText('DEPARTING EARTH — MISSION EXOFALL', canvas.width / 2, canvas.height * 0.85);
+            ctx.fillText('DEPARTING EARTH — MISSION PROMPT&PLAY', canvas.width / 2, canvas.height * 0.85);
             ctx.globalAlpha = 1;
 
         } else if (cinematicTimer < 5) {

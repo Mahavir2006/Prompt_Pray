@@ -7,7 +7,11 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve landing page at root, game at /play
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'landing.html')));
+app.get('/play', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // ======================== CONSTANTS ========================
 const TICK_RATE = 20;
@@ -120,7 +124,8 @@ function canStartGame(room) {
     let allReady = true;
     const usedRoles = new Set();
     for (const [, p] of room.players) {
-        if (!p.ready || !p.role) allReady = false;
+        if (!p.role) allReady = false;
+        if (!p.isHost && !p.ready) allReady = false;
         if (p.role) {
             if (usedRoles.has(p.role)) return false;
             usedRoles.add(p.role);

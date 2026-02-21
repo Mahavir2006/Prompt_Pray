@@ -4,21 +4,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EXOFALL — Space Survival</title>
+    <title>Prompt&Play — Space Survival</title>
     <meta name="description" content="Real-time multiplayer cooperative space survival game">
     <link rel="stylesheet" href="style.css">
     <link
-        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap"
         rel="stylesheet">
 </head>
 
 <body>
+    <!-- MOBILE BLOCK SCREEN -->
+    <div id="mobileBlock" class="mobile-block" style="display:none;">
+        <div class="mobile-block-content">
+            <div class="mobile-block-icon">🚀</div>
+            <h1 class="mobile-block-title">Prompt&Play</h1>
+            <div class="mobile-block-divider"></div>
+            <p class="mobile-block-msg">This game is not yet available on mobile devices.</p>
+            <p class="mobile-block-coming">COMING SOON</p>
+            <div class="mobile-block-dots">
+                <span></span><span></span><span></span>
+            </div>
+            <p class="mobile-block-hint">Please visit on a desktop or laptop browser to play.</p>
+        </div>
+    </div>
+
     <canvas id="gameCanvas"></canvas>
 
     <!-- LOBBY OVERLAY -->
     <div id="lobbyOverlay" class="overlay">
         <div class="lobby-container">
-            <h1 class="game-title">EXOFALL</h1>
+            <h1 class="game-title">Prompt&Play</h1>
             <p class="game-subtitle">COOPERATIVE SPACE SURVIVAL</p>
 
             <div id="connectScreen">
@@ -112,6 +127,17 @@
         <div id="controlsHint" class="hud-controls">WASD Move · Click Attack · E Interact · Q Ability · Tab Scores</div>
     </div>
 
+    <script>
+        (function () {
+            var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+                || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+            if (isMobile) {
+                document.getElementById('mobileBlock').style.display = 'flex';
+                document.getElementById('lobbyOverlay').style.display = 'none';
+                document.getElementById('gameCanvas').style.display = 'none';
+            }
+        })();
+    </script>
     <script src="game.js"></script>
 </body>
 
