@@ -1,0 +1,108 @@
+/* ============ RESET & BASE ============ */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+::-webkit-scrollbar {
+    display: none;
+}
+
+body {
+    background: #050510;
+    overflow: hidden;
+    font-family: 'Rajdhani', sans-serif;
+    color: #e0e0e0;
+    width: 100vw;
+    height: 100vh;
+}
+
+canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+}
+
+/* ============ OVERLAYS ============ */
+.overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    background: radial-gradient(ellipse at center, rgba(8, 8, 30, 0.95) 0%, rgba(3, 3, 15, 0.98) 100%);
+    animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* ============ SHARED INPUTS ============ */
+input[type="text"] {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(76, 201, 240, 0.3);
+    color: #fff;
+    padding: 12px 20px;
+    font-size: 1.1rem;
+    font-family: 'Orbitron', sans-serif;
+    text-align: center;
+    letter-spacing: 0.2em;
+    border-radius: 8px;
+    outline: none;
+    width: 280px;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+input[type="text"]:focus {
+    border-color: #4cc9f0;
+    box-shadow: 0 0 20px rgba(76, 201, 240, 0.2);
+}
+
+input[type="text"]::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+    letter-spacing: 0.15em;
+}
+
+/* ============ SHARED BUTTONS ============ */
+.btn {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    padding: 14px 36px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    letter-spacing: 0.15em;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #4cc9f0, #3a86ff);
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(76, 201, 240, 0.3);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 30px rgba(76, 201, 240, 0.5);
+}
+
+.btn-secondary {
+    background: rgba(76, 201, 240, 0.15);
+    color: #4cc9f0;
+    border: 1px solid rgba(76, 201, 240, 0.4);
+}
+
+.btn-secondary:hover {
+    background: rgba(76, 201, 240, 0.25);
+}

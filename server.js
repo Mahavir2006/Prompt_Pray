@@ -12,6 +12,87 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'landing.
 app.get('/play', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+app.use(express.json());
+
+// ======================== LEADERBOARD ========================
+const LEADERBOARD_FILE = path.join(__dirname, 'leaderboard.json');
+
+function loadLeaderboard() {
+    try {
+        const data = fs.readFileSync(LEADERBOARD_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveLeaderboard(lb) {
+    lb.sort((a, b) => b.totalScore - a.totalScore);
+    fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(lb, null, 2));
+}
+
+/*
+  SCORING SYSTEM:
+  ───────────────────────────────────────────
+  • Mission Completed (team wins)     = +10 pts
+  • Individual Contributions:
+    - Every 5 enemies killed          = +5 pts
+    - Every 500 damage dealt          = +5 pts
+    - Every 500 healing done          = +5 pts
+    - Every 5 repairs completed       = +5 pts
+    - Each trivia answered correctly  = +5 pts
+  • Survival Bonus (alive at end)     = +3 pts
+  ───────────────────────────────────────────
+*/
+function calculatePlayerScore(playerScore, victory, alive) {
+    let pts = 0;
+    if (victory) pts += 10;
+    pts += Math.floor(playerScore.enemiesKilled / 5) * 5;
+    pts += Math.floor(playerScore.damageDealt / 500) * 5;
+    pts += Math.floor(playerScore.healingDone / 500) * 5;
+    pts += Math.floor(playerScore.repairsDone / 5) * 5;
+    pts += (playerScore.triviaCorrect || 0) * 5;
+    if (alive) pts += 3;
+    return pts;
+}
+
+function updateLeaderboard(gs, victory) {
+    const lb = loadLeaderboard();
+    for (const [, p] of gs.players) {
+        const earned = calculatePlayerScore(p.score, victory, p.alive);
+        const existing = lb.find(e => e.name === p.name);
+        if (existing) {
+            existing.totalScore += earned;
+            existing.gamesPlayed += 1;
+            if (victory) existing.missionsCompleted += 1;
+            existing.enemiesKilled += p.score.enemiesKilled;
+            existing.damageDealt += Math.round(p.score.damageDealt);
+            existing.healingDone += Math.round(p.score.healingDone);
+            existing.repairsDone += Math.round(p.score.repairsDone);
+            existing.triviaCorrect += (p.score.triviaCorrect || 0);
+            existing.role = p.role; // update to latest role
+        } else {
+            lb.push({
+                name: p.name,
+                role: p.role,
+                totalScore: earned,
+                missionsCompleted: victory ? 1 : 0,
+                enemiesKilled: p.score.enemiesKilled,
+                damageDealt: Math.round(p.score.damageDealt),
+                healingDone: Math.round(p.score.healingDone),
+                repairsDone: Math.round(p.score.repairsDone),
+                triviaCorrect: p.score.triviaCorrect || 0,
+                gamesPlayed: 1
+            });
+        }
+    }
+    saveLeaderboard(lb);
+}
+
+app.get('/api/leaderboard', (req, res) => {
+    const lb = loadLeaderboard();
+    res.json(lb);
+});
 
 // ======================== CONSTANTS ========================
 const TICK_RATE = 20;
@@ -120,9 +201,9 @@ try {
 }
 
 // ── PLANET MAP INTEGRATION START ──
-// Walkable zone rectangles for the 1024x1024 planet exterior map
+// Walkable zone rectangles for the 1536x1024 planet exterior map
 const PLANET_MAP_ZONES = [
-    { id: 'planet_main', x: 0, y: 0, w: 1024, h: 1024 }
+    { id: 'planet_main', x: 0, y: 0, w: 1536, h: 1024 }
 ];
 
 const PLANET_OBSTACLES = [];
@@ -200,24 +281,31 @@ const PLANET_SCALE = 3;
 PLANET_MAP_ZONES.forEach(z => { z.x *= PLANET_SCALE; z.y *= PLANET_SCALE; z.w *= PLANET_SCALE; z.h *= PLANET_SCALE; });
 PLANET_OBSTACLES.forEach(o => { o.x *= PLANET_SCALE; o.y *= PLANET_SCALE; if (o.w) o.w *= PLANET_SCALE; if (o.h) o.h *= PLANET_SCALE; if (o.r) o.r *= PLANET_SCALE; });
 
-const PLANET_W = 1024 * PLANET_SCALE;
+const PLANET_W = 1536 * PLANET_SCALE;
 const PLANET_H = 1024 * PLANET_SCALE;
 
 // ── MAP TRANSITION ZONES ──
 // Ship engine room bottom edge -> Planet entry
 const SHIP_EXIT_ZONE = { x: 400 * MAP_SCALE, y: 920 * MAP_SCALE, w: 224 * MAP_SCALE, h: 104 * MAP_SCALE };
 // Planet entry -> back to ship
-const PLANET_EXIT_ZONE = { x: 400 * PLANET_SCALE, y: 900 * PLANET_SCALE, w: 224 * PLANET_SCALE, h: 124 * PLANET_SCALE };
+const PLANET_EXIT_ZONE = { x: 650 * PLANET_SCALE, y: 850 * PLANET_SCALE, w: 236 * PLANET_SCALE, h: 100 * PLANET_SCALE };
 // Spawn positions when entering planet
 const PLANET_SPAWN = { x: 768 * PLANET_SCALE, y: 816 * PLANET_SCALE };
 // Spawn positions when returning to ship
 const SHIP_RETURN_SPAWN = { x: 512 * MAP_SCALE, y: 950 * MAP_SCALE };
 
 const OBJECTIVES = [
-    { phase: 'objective1', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, repairTime: 12, desc: 'Stabilize Core System', zone: 'cockpit_room', map: 'ship' },
-    { phase: 'objective2', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 10, desc: 'Restore Left Power Grid', zone: 'left_3', map: 'ship' },
-    { phase: 'objective3', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 15, desc: 'Restore Right Power Grid', zone: 'right_3', map: 'ship' },
-    { phase: 'final', x: 512 * MAP_SCALE, y: 870 * MAP_SCALE, repairTime: 8, desc: 'Activate Engine Core', zone: 'engine', map: 'ship' }
+    { phase: 'objective1', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, repairTime: 5, desc: 'Stabilize Core System (Hold E)', zone: 'cockpit_room', map: 'ship', isTrivia: false },
+    { phase: 'trivia_core', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, desc: 'Confirm Core Stabilization (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15 },
+    { phase: 'objective2', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 5, desc: 'Restore Left Grid (Hold E)', zone: 'left_3', map: 'ship', isTrivia: false },
+    { phase: 'trivia_left', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, desc: 'Confirm Left Grid (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15 },
+    { phase: 'objective3', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 5, desc: 'Restore Right Grid (Hold E)', zone: 'right_3', map: 'ship', isTrivia: false },
+    { phase: 'trivia_right', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, desc: 'Confirm Right Grid (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15 },
+    { phase: 'trivia1', x: 512 * MAP_SCALE, y: 870 * MAP_SCALE, desc: 'Unlock Airlock (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15 },
+    { phase: 'trivia2', x: 400 * PLANET_SCALE, y: 240 * PLANET_SCALE, desc: 'Left Exoplanet Node (Press E)', map: 'planet', isTrivia: true, difficulty: 'medium', time: 10 },
+    { phase: 'objective4', x: 400 * PLANET_SCALE, y: 240 * PLANET_SCALE, repairTime: 5, desc: 'Repair Left Node (Hold E)', zone: 'planet_left', map: 'planet', isTrivia: false },
+    { phase: 'trivia3', x: 1350 * PLANET_SCALE, y: 280 * PLANET_SCALE, desc: 'Right Exoplanet Node (Press E)', map: 'planet', isTrivia: true, difficulty: 'hard', time: 8 },
+    { phase: 'objective5', x: 1350 * PLANET_SCALE, y: 280 * PLANET_SCALE, repairTime: 5, desc: 'Repair Right Node (Hold E)', zone: 'planet_right', map: 'planet', isTrivia: false }
 ];
 
 const SPAWN_POINTS = {
@@ -226,7 +314,9 @@ const SPAWN_POINTS = {
     left_3: [{ x: 250 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 300 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 350 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 200 * MAP_SCALE, y: 480 * MAP_SCALE }],
     right_3: [{ x: 774 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 700 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 650 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 824 * MAP_SCALE, y: 480 * MAP_SCALE }],
     engine: [{ x: 400 * MAP_SCALE, y: 810 * MAP_SCALE }, { x: 600 * MAP_SCALE, y: 810 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 850 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 790 * MAP_SCALE }],
-    boss_adds: [{ x: 200 * MAP_SCALE, y: 800 * MAP_SCALE }, { x: 824 * MAP_SCALE, y: 800 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 780 * MAP_SCALE }, { x: 350 * MAP_SCALE, y: 850 * MAP_SCALE }]
+    boss_adds: [{ x: 200 * MAP_SCALE, y: 800 * MAP_SCALE }, { x: 824 * MAP_SCALE, y: 800 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 780 * MAP_SCALE }, { x: 350 * MAP_SCALE, y: 850 * MAP_SCALE }],
+    planet_left: [{ x: 380 * PLANET_SCALE, y: 250 * PLANET_SCALE }, { x: 380 * PLANET_SCALE, y: 400 * PLANET_SCALE }, { x: 500 * PLANET_SCALE, y: 250 * PLANET_SCALE }, { x: 500 * PLANET_SCALE, y: 400 * PLANET_SCALE }],
+    planet_right: [{ x: 1250 * PLANET_SCALE, y: 280 * PLANET_SCALE }, { x: 1250 * PLANET_SCALE, y: 450 * PLANET_SCALE }, { x: 1400 * PLANET_SCALE, y: 280 * PLANET_SCALE }, { x: 1400 * PLANET_SCALE, y: 450 * PLANET_SCALE }]
 };
 
 // ── FAST A* PATHFINDING START ──
@@ -514,7 +604,7 @@ function createGameState(room) {
             attackCd: 0, abilityCd: 0,
             abilityActive: false, abilityTimer: 0,
             input: { w: false, a: false, s: false, d: false, mouseX: 0, mouseY: 0, attack: false, interact: false, ability: false },
-            score: { damageDealt: 0, healingDone: 0, enemiesKilled: 0, repairsDone: 0 },
+            score: { damageDealt: 0, healingDone: 0, enemiesKilled: 0, repairsDone: 0, triviaCorrect: 0 },
             combatTimer: 0,
             speed: role.speed,
             currentMap: 'ship' // 'ship' or 'planet'
@@ -545,11 +635,9 @@ function gameTick(room) {
     gs.phaseTimer += DT; // Accumulate time in current phase
     if (gs.timer <= 0) {
         gs.timer = 0;
-        endGame(room, false);
+        endGame(room, gs.finalCountdown ? true : false);
         return;
     }
-
-    gs.phaseTimer += DT;
 
     // Intro phase - 15 seconds grace period
     if (gs.phase === 'intro' && gs.phaseTimer >= 15) {
@@ -617,7 +705,9 @@ function updatePlayer(gs, player) {
 
     // Track E double tap for map transition
     let doubleTappedInteract = false;
-    if (inp.interact && !player.prevInteract) {
+    let justInteracted = inp.interact && !player.prevInteract;
+
+    if (justInteracted) {
         let now = Date.now();
         if (now - (player.lastInteractTime || 0) < 600) {
             doubleTappedInteract = true;
@@ -626,10 +716,17 @@ function updatePlayer(gs, player) {
             player.lastInteractTime = now;
         }
     }
+    player.justInteracted = justInteracted;
     player.prevInteract = inp.interact;
 
     // Movement
     let dx = 0, dy = 0;
+    if (player.triviaLocked) {
+        player.input.w = player.input.a = player.input.s = player.input.d = false;
+        player.input.attack = false;
+        player.input.ability = false;
+    }
+
     if (inp.w) dy -= 1;
     if (inp.s) dy += 1;
     if (inp.a) dx -= 1;
@@ -718,6 +815,7 @@ function performAttack(gs, player) {
         let dmg = role.damage;
         if (player.abilityActive) dmg = 40;
         for (const [, enemy] of gs.enemies) {
+            if ((enemy.map || 'ship') !== player.currentMap) continue;
             const dist = distance(player, enemy);
             if (dist < role.range + ENEMY_RADIUS) {
                 const enemyAngle = Math.atan2(enemy.y - player.y, enemy.x - player.x);
@@ -726,7 +824,7 @@ function performAttack(gs, player) {
                 }
             }
         }
-        if (gs.boss) {
+        if (gs.boss && (gs.boss.map || 'planet') === player.currentMap) {
             const dist = distance(player, gs.boss);
             if (dist < role.range + BOSS_RADIUS) {
                 damageBoss(gs, dmg, player);
@@ -744,7 +842,8 @@ function performAttack(gs, player) {
             owner: player.id,
             life: role.range / (role.projSpeed || PROJ_SPEED),
             isPlayerProj: true,
-            ownerRole: player.role
+            ownerRole: player.role,
+            map: player.currentMap || 'ship'
         });
     }
 }
@@ -807,7 +906,11 @@ function activateAbility(gs, player) {
                     gs.events.push({ type: 'heal', x: p.x, y: p.y - 20, value: 60 });
                 }
             }
-            player.score.healingDone += 60 * gs.players.size;
+            let healedCount = 0;
+            for (const [, hp] of gs.players) {
+                if (hp.alive && distance(player, hp) < 300) healedCount++;
+            }
+            player.score.healingDone += 60 * healedCount;
             gs.events.push({ type: 'announcement', text: 'FIELD SURGE', duration: 2, color: '#ef476f' });
             break;
     }
@@ -824,7 +927,7 @@ function updateEnemies(gs) {
         // Find nearest alive player
         let target = null, minDist = Infinity;
         for (const [, p] of gs.players) {
-            if (!p.alive) continue;
+            if (!p.alive || p.currentMap !== (enemy.map || 'ship')) continue;
             const d = distance(enemy, p);
             if (d < minDist) { minDist = d; target = p; }
         }
@@ -839,7 +942,7 @@ function updateEnemies(gs) {
         let moveTargetY = target.y;
 
         if (enemy.pathTimer <= 0 || !enemy.path) {
-            enemy.path = findPath(enemy.currentMap || 'ship', enemy.x, enemy.y, target.x, target.y);
+            enemy.path = findPath(enemy.map || 'ship', enemy.x, enemy.y, target.x, target.y);
             enemy.pathTimer = 0.5 + Math.random() * 0.2; // Recalculate ~twice a second
         }
 
@@ -885,11 +988,26 @@ function updateEnemies(gs) {
     }
 }
 
-function spawnEnemy(gs, x, y, type) {
+// Determine orc visual type based on current game phase (wave)
+function getOrcType(gs) {
+    switch (gs.phase) {
+        case 'objective1': case 'trivia_core':
+            return 'orc1'; // Wave 1
+        case 'objective2': case 'trivia_left':
+            return 'orc2'; // Wave 2
+        case 'objective3': case 'trivia_right': case 'trivia1':
+            return Math.random() < 0.5 ? 'orc1' : 'orc2'; // Wave 3: mix of both
+        default:
+            return Math.random() < 0.5 ? 'orc1' : 'orc2'; // Later waves: mix
+    }
+}
+
+function spawnEnemy(gs, x, y, type, mapName = 'ship') {
     const id = nextEnemyId++;
     const isElite = type === 'elite';
     gs.enemies.set(id, {
-        id, x, y, type: type || 'common',
+        id, x, y, type: type || 'common', map: mapName,
+        orcType: getOrcType(gs),
         hp: (isElite ? 120 : 70) * gs.enemyHpScale,
         maxHp: (isElite ? 120 : 70) * gs.enemyHpScale,
         damage: isElite ? 18 : gs.enemyDmgBase,
@@ -920,6 +1038,7 @@ function handleSpawning(gs, room) {
     if (gs.spawnTimer > 0) return;
 
     let spawnZone, count, interval, includeElites = false;
+    let spawnMap = 'ship';
     switch (gs.phase) {
         case 'objective1':
             spawnZone = 'corridor'; count = 2 + Math.floor(Math.random() * 2); interval = 5;
@@ -928,8 +1047,19 @@ function handleSpawning(gs, room) {
             spawnZone = 'left_3'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
             break;
         case 'objective3':
+        case 'trivia1':
             spawnZone = 'right_3'; count = 4 + Math.floor(Math.random() * 2); interval = 3;
             includeElites = true;
+            break;
+        case 'trivia2':
+        case 'objective4':
+            spawnZone = 'planet_left'; count = 5; interval = 4; includeElites = true;
+            spawnMap = 'planet';
+            break;
+        case 'trivia3':
+        case 'objective5':
+            spawnZone = 'planet_right'; count = 6; interval = 3; includeElites = true;
+            spawnMap = 'planet';
             break;
         case 'boss':
             return; // Boss handles its own adds
@@ -940,7 +1070,8 @@ function handleSpawning(gs, room) {
             return;
     }
 
-    if (gs.enemies.size > 20) return; // Cap enemies
+    const mapEnemyCount = [...gs.enemies.values()].filter(e => (e.map || 'ship') === spawnMap).length;
+    if (mapEnemyCount > 20) return; // Cap enemies per map
 
     const points = SPAWN_POINTS[spawnZone] || SPAWN_POINTS.corridor;
     for (let i = 0; i < count; i++) {
@@ -948,7 +1079,7 @@ function handleSpawning(gs, room) {
         if (gs.phase === 'objective2' && gs.phaseEnemiesSpawned >= 45) break;
         const sp = points[Math.floor(Math.random() * points.length)];
         const type = includeElites && Math.random() < 0.3 ? 'elite' : 'common';
-        spawnEnemy(gs, sp.x + (Math.random() - 0.5) * 40, sp.y + (Math.random() - 0.5) * 40, type);
+        spawnEnemy(gs, sp.x + (Math.random() - 0.5) * 40, sp.y + (Math.random() - 0.5) * 40, type, spawnMap);
         gs.phaseEnemiesSpawned++; // Track for all phases
     }
     gs.spawnTimer = interval;
@@ -957,7 +1088,7 @@ function handleSpawning(gs, room) {
 // ======================== BOSS AI ========================
 function spawnBoss(gs) {
     gs.boss = {
-        x: 1100, y: 250,
+        x: 768 * PLANET_SCALE, y: 400 * PLANET_SCALE,
         hp: 2000, maxHp: 2000,
         phase: 0,
         attackCd: 2,
@@ -967,7 +1098,8 @@ function spawnBoss(gs) {
         projectiles: [],
         stunTimer: 0,
         aggroPhase: false,
-        aggroTimer: 0
+        aggroTimer: 0,
+        map: 'planet'
     };
     gs.bossPhaseThreshold = 3;
     gs.events.push({ type: 'announcement', text: '⚠ ALIEN GUARDIAN EMERGES ⚠', duration: 3, color: '#7b2cbf' });
@@ -993,11 +1125,12 @@ function updateBoss(gs) {
         boss.phase = currentPhase;
         boss.aggroPhase = true;
         boss.aggroTimer = 5;
-        // Spawn adds
-        const points = SPAWN_POINTS.boss_adds;
+        // Spawn adds on the boss's map
+        const bossMap = boss.map || 'planet';
+        const points = bossMap === 'planet' ? SPAWN_POINTS.planet_left.concat(SPAWN_POINTS.planet_right) : SPAWN_POINTS.boss_adds;
         for (let i = 0; i < 3 + Math.floor(Math.random() * 2); i++) {
             const sp = points[Math.floor(Math.random() * points.length)];
-            spawnEnemy(gs, sp.x, sp.y, 'common');
+            spawnEnemy(gs, sp.x, sp.y, 'common', bossMap);
         }
         gs.events.push({ type: 'announcement', text: 'BOSS ENRAGED!', duration: 2, color: '#e63946' });
     }
@@ -1012,10 +1145,11 @@ function updateBoss(gs) {
         return;
     }
 
-    // Find target
+    // Find target (only players on the same map as the boss)
+    const bossMap = boss.map || 'planet';
     let target = null, minDist = Infinity;
     for (const [, p] of gs.players) {
-        if (!p.alive) continue;
+        if (!p.alive || p.currentMap !== bossMap) continue;
         const d = distance(boss, p);
         if (d < minDist) { minDist = d; target = p; }
     }
@@ -1040,7 +1174,8 @@ function updateBoss(gs) {
                 gs.projectiles.set(projId, {
                     id: projId, x: boss.x, y: boss.y,
                     dx: Math.cos(a) * 300, dy: Math.sin(a) * 300,
-                    damage: 25, owner: -1, life: 1.5, isPlayerProj: false
+                    damage: 25, owner: -1, life: 1.5, isPlayerProj: false,
+                    map: boss.map || 'planet'
                 });
             }
         }
@@ -1057,6 +1192,7 @@ function updateBoss(gs) {
         // Check collision with players
         for (const [, p] of gs.players) {
             if (!p.alive) continue;
+            if ((p.currentMap || 'ship') !== (boss.map || 'planet')) continue;
             if (distance(boss, p) < BOSS_RADIUS + PLAYER_RADIUS) {
                 let dmg = 35;
                 if (p.role === 'vanguard' && p.abilityActive) dmg = Math.floor(dmg * 0.7);
@@ -1086,9 +1222,9 @@ function updateBoss(gs) {
         boss.y += Math.sin(angle) * 40 * DT;
     }
 
-    // Keep boss in exterior zone
-    boss.x = Math.max(870, Math.min(1380, boss.x));
-    boss.y = Math.max(70, Math.min(430, boss.y));
+    // Keep boss within planet boundaries
+    boss.x = Math.max(100 * PLANET_SCALE, Math.min((1536 - 100) * PLANET_SCALE, boss.x));
+    boss.y = Math.max(100 * PLANET_SCALE, Math.min((1024 - 100) * PLANET_SCALE, boss.y));
 }
 
 function damageBoss(gs, amount, player) {
@@ -1111,6 +1247,7 @@ function updateProjectiles(gs) {
         if (proj.isPlayerProj) {
             // Check enemy hits
             for (const [, enemy] of gs.enemies) {
+                if ((enemy.map || 'ship') !== (proj.map || 'ship')) continue;
                 const r = enemy.type === 'elite' ? ELITE_RADIUS : ENEMY_RADIUS;
                 if (distance(proj, enemy) < PROJ_RADIUS + r) {
                     const player = gs.players.get(proj.owner);
@@ -1120,7 +1257,7 @@ function updateProjectiles(gs) {
                 }
             }
             // Check boss hit
-            if (gs.boss && distance(proj, gs.boss) < PROJ_RADIUS + BOSS_RADIUS) {
+            if (gs.boss && (gs.boss.map || 'planet') === (proj.map || 'ship') && distance(proj, gs.boss) < PROJ_RADIUS + BOSS_RADIUS) {
                 const player = gs.players.get(proj.owner);
                 if (player) damageBoss(gs, proj.damage, player);
                 gs.projectiles.delete(id);
@@ -1129,6 +1266,7 @@ function updateProjectiles(gs) {
             // Enemy/Boss projectile - check player hits
             for (const [, p] of gs.players) {
                 if (!p.alive) continue;
+                if ((p.currentMap || 'ship') !== (proj.map || 'ship')) continue;
                 if (distance(proj, p) < PROJ_RADIUS + PLAYER_RADIUS) {
                     let dmg = proj.damage;
                     if (p.role === 'vanguard' && p.abilityActive) dmg = Math.floor(dmg * 0.7);
@@ -1181,7 +1319,8 @@ function damageEnemy(gs, enemy, amount, player) {
     enemy.hp -= amount;
     if (player) player.score.damageDealt += amount;
     gs.events.push({ type: 'damage', x: enemy.x + (Math.random() - 0.5) * 10, y: enemy.y - 20, value: amount });
-    if (enemy.hp <= 0) {
+    if (enemy.hp <= 0 && !enemy.dead) {
+        enemy.dead = true;
         if (player) player.score.enemiesKilled++;
         gs.events.push({ type: 'kill', x: enemy.x, y: enemy.y });
     }
@@ -1189,15 +1328,40 @@ function damageEnemy(gs, enemy, amount, player) {
 
 // ======================== OBJECTIVES ========================
 function handleObjective(gs, room) {
-    const phaseToObj = { objective1: 0, objective2: 1, objective3: 2, final: 3 };
+    const phaseToObj = {
+        objective1: 0, trivia_core: 1,
+        objective2: 2, trivia_left: 3,
+        objective3: 4, trivia_right: 5,
+        trivia1: 6, trivia2: 7,
+        objective4: 8, trivia3: 9,
+        objective5: 10,
+        final: -1, boss: -1
+    };
     const objIdx = phaseToObj[gs.phase];
-    if (objIdx === undefined) return;
+    if (objIdx === undefined || objIdx === -1) return;
     const obj = OBJECTIVES[objIdx];
+
+    // Check if it's a trivia objective
+    if (obj.isTrivia) {
+        for (const [, player] of gs.players) {
+            if (!player.alive || player.currentMap !== obj.map) continue;
+            const d = distance(player, obj);
+            let timeNow = Date.now();
+            if (d < 150) { // Trivia sensor range
+                // Single E tap detection
+                if (player.justInteracted && !player.triviaLocked && timeNow > (player.triviaCooldown || 0)) {
+                    player.triviaLocked = true;
+                    gs.events.push({ type: 'startTrivia', playerId: player.id, difficulty: obj.difficulty, timeLimit: obj.time, phase: gs.phase });
+                }
+            }
+        }
+        return; // skip repair logic
+    }
 
     // Check if any player is interacting
     let repairSpeed = 0;
     for (const [, player] of gs.players) {
-        if (!player.alive || !player.input.interact) continue;
+        if (!player.alive || !player.input.interact || player.triviaLocked) continue;
         const d = distance(player, obj);
         if (d > INTERACT_RANGE) continue;
 
@@ -1238,35 +1402,71 @@ function completeObjective(gs, room) {
     gs.phaseEnemiesSpawned = 0;
     gs.phaseWarningSent = false;
 
-    // Provide some score to all
-    for (const [, p] of gs.players) p.score.repairsDone += 50;
+    // Provide some score to all (only for repair objectives, not trivias)
+    const isTriviaPhase = gs.phase.startsWith('trivia');
+    if (!isTriviaPhase) {
+        for (const [, p] of gs.players) p.score.repairsDone += 50;
+    }
 
     switch (gs.phase) {
         case 'objective1':
-            gs.doorUnlocked = true;
+            gs.phase = 'trivia_core';
+            gs.phaseTimer = 0;
+            gs.events.push({ type: 'announcement', text: 'CORE STABILIZED! AUTHENTICATE AT TERMINAL!', duration: 3, color: '#06d6a0' });
+            break;
+        case 'trivia_core':
             gs.phase = 'objective2';
             gs.phaseTimer = 0;
-            gs.enemyDmgBase = 12;
-            gs.events.push({ type: 'announcement', text: 'CORE STABILIZED! HATCH UNLOCKED!', duration: 3, color: '#06d6a0' });
+            gs.events.push({ type: 'announcement', text: 'CORE AUTHENTICATED! PROCEED TO LEFT GRID!', duration: 3, color: '#06d6a0' });
             break;
-
         case 'objective2':
+            gs.phase = 'trivia_left';
+            gs.phaseTimer = 0;
+            gs.events.push({ type: 'announcement', text: 'LEFT GRID ACTIVE! AUTHENTICATE AT TERMINAL!', duration: 3, color: '#ffd166' });
+            break;
+        case 'trivia_left':
             gs.phase = 'objective3';
             gs.phaseTimer = 0;
-            gs.enemyDmgBase = 15;
-            gs.enemySpeedBase = 110;
-            gs.events.push({ type: 'announcement', text: 'BEACON ACTIVE! ENEMIES ALERTED!', duration: 3, color: '#ffd166' });
+            gs.events.push({ type: 'announcement', text: 'LEFT GRID AUTHENTICATED! PROCEED TO RIGHT GRID!', duration: 3, color: '#ffd166' });
             break;
-
         case 'objective3':
-            gs.phase = 'boss';
+            gs.phase = 'trivia_right';
             gs.phaseTimer = 0;
+            gs.events.push({ type: 'announcement', text: 'RIGHT GRID ACTIVE! AUTHENTICATE AT TERMINAL!', duration: 4, color: '#ffb703' });
+            break;
+        case 'trivia_right':
+            gs.phase = 'trivia1';
+            gs.phaseTimer = 0;
+            gs.events.push({ type: 'announcement', text: 'RIGHT GRID AUTHENTICATED! UNLOCK AIRLOCK!', duration: 4, color: '#ffb703' });
+            break;
+        case 'trivia1':
+            gs.doorUnlocked = true;
+            gs.phase = 'trivia2';
+            gs.events.push({ type: 'announcement', text: 'AIRLOCK UNLOCKED! PROCEED TO EXOPLANET!', duration: 5, color: '#00ffff' });
+            break;
+        case 'trivia2':
+            gs.phase = 'objective4';
+            gs.phaseTimer = 0;
+            gs.events.push({ type: 'announcement', text: 'LEFT TERMINAL ACCESSED! REPAIR THE NODE!', duration: 5, color: '#00ffff' });
+            break;
+        case 'objective4':
+            gs.phase = 'trivia3';
+            gs.phaseTimer = 0;
+            gs.events.push({ type: 'announcement', text: 'LEFT NODE REPAIRED! PROCEED TO RIGHT NODE!', duration: 5, color: '#00ffff' });
+            break;
+        case 'trivia3':
+            gs.phase = 'objective5';
+            gs.phaseTimer = 0;
+            gs.events.push({ type: 'announcement', text: 'RIGHT TERMINAL ACCESSED! REPAIR THE NODE!', duration: 5, color: '#00ffff' });
+            break;
+        case 'objective5':
+            gs.phase = 'boss';
             spawnBoss(gs);
-            // Clear remaining enemies
             gs.enemies.clear();
+            gs.events.push({ type: 'announcement', text: 'ALL NODES SECURED! BOSS APPROACHING!', duration: 5, color: '#ff0000' });
             break;
 
-        case 'final':
+        case 'boss':
             endGame(room, true);
             break;
     }
@@ -1286,8 +1486,9 @@ function angleDiff(a, b) {
 
 function constrainToMap(gs, entity, r = PLAYER_RADIUS) {
     // Determine which map's zones and obstacles to use
-    const activeZones = entity.currentMap === 'planet' ? PLANET_MAP_ZONES : MAP_ZONES;
-    const activeObstacles = entity.currentMap === 'planet' ? PLANET_OBSTACLES : OBSTACLES;
+    const entityMap = entity.currentMap || entity.map || 'ship';
+    const activeZones = entityMap === 'planet' ? PLANET_MAP_ZONES : MAP_ZONES;
+    const activeObstacles = entityMap === 'planet' ? PLANET_OBSTACLES : OBSTACLES;
     let valid = false;
 
     // ── MAP INTEGRATION START ──
@@ -1361,9 +1562,17 @@ function respawnPlayer(gs, player) {
     const role = ROLES[player.role];
     player.alive = true;
     player.hp = Math.floor(role.hp * 0.5);
-    // Respawn at ship start
-    player.x = 300 + Math.random() * 200;
-    player.y = 200 + Math.random() * 100;
+
+    // Respawn correctly based on their current map dimension scale points
+    if (player.currentMap === 'planet') {
+        player.x = 400 * PLANET_SCALE;
+        player.y = 880 * PLANET_SCALE;
+    } else {
+        // Default ship respawn
+        player.x = 512 * MAP_SCALE + (Math.random() - 0.5) * 40;
+        player.y = 700 * MAP_SCALE + (Math.random() - 0.5) * 40;
+    }
+
     player.attackCd = 0;
 }
 
@@ -1374,10 +1583,13 @@ function endGame(room, victory) {
 
     const scores = [];
     for (const [, p] of gs.players) {
-        scores.push({ id: p.id, name: p.name, role: p.role, ...p.score });
+        const earned = calculatePlayerScore(p.score, victory, p.alive);
+        scores.push({ id: p.id, name: p.name, role: p.role, earned, ...p.score });
     }
-    scores.sort((a, b) => (b.damageDealt + b.healingDone + b.enemiesKilled * 50 + b.repairsDone * 100) -
-        (a.damageDealt + a.healingDone + a.enemiesKilled * 50 + a.repairsDone * 100));
+    scores.sort((a, b) => b.earned - a.earned);
+
+    // Save to leaderboard
+    try { updateLeaderboard(gs, victory); } catch (e) { console.error('Leaderboard save error:', e); }
 
     broadcastToRoom(room, { type: 'gameOver', victory, scores, timeRemaining: gs.timer });
 
@@ -1412,7 +1624,9 @@ function broadcastState(room) {
     for (const [, e] of gs.enemies) {
         enemies.push({
             id: e.id, x: Math.round(e.x), y: Math.round(e.y),
-            hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), type: e.type
+            hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), type: e.type,
+            orcType: e.orcType || 'orc1',
+            map: e.map || 'ship'
         });
     }
 
@@ -1421,7 +1635,16 @@ function broadcastState(room) {
         projs.push({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), vx: p.vx || p.dx, vy: p.vy || p.dy, isPlayerProj: p.isPlayerProj, ownerRole: p.ownerRole });
     }
 
-    const currentObj = { objective1: 0, objective2: 1, objective3: 2, final: 3 }[gs.phase];
+    const phaseToObj = {
+        objective1: 0, trivia_core: 1,
+        objective2: 2, trivia_left: 3,
+        objective3: 4, trivia_right: 5,
+        trivia1: 6, trivia2: 7,
+        objective4: 8, trivia3: 9,
+        objective5: 10,
+        final: -1, boss: -1
+    };
+    const currentObj = phaseToObj[gs.phase] >= 0 ? phaseToObj[gs.phase] : undefined;
 
     const state = {
         type: 'gameState',
@@ -1433,7 +1656,8 @@ function broadcastState(room) {
         boss: gs.boss ? {
             x: Math.round(gs.boss.x), y: Math.round(gs.boss.y),
             hp: Math.round(gs.boss.hp), maxHp: gs.boss.maxHp,
-            attackType: gs.boss.attackType, aggroPhase: gs.boss.aggroPhase
+            attackType: gs.boss.attackType, aggroPhase: gs.boss.aggroPhase,
+            map: gs.boss.map || 'planet'
         } : null,
         projectiles: projs,
         turrets: gs.turrets.map(t => ({ x: t.x, y: t.y, timer: Math.round(t.timer * 10) / 10 })),
@@ -1443,6 +1667,7 @@ function broadcastState(room) {
             x: OBJECTIVES[currentObj].x,
             y: OBJECTIVES[currentObj].y,
             desc: OBJECTIVES[currentObj].desc,
+            map: OBJECTIVES[currentObj].map || 'ship',
             progress: gs.objectiveProgress
         } : null,
         doorUnlocked: gs.doorUnlocked,
@@ -1547,6 +1772,35 @@ wss.on('connection', (ws) => {
                     mouseX: msg.mouseX || 0, mouseY: msg.mouseY || 0,
                     attack: !!msg.attack, interact: !!msg.interact, ability: !!msg.ability
                 };
+                break;
+            }
+
+            case 'triviaResult': {
+                if (!currentRoom || !currentRoom.gameState) return;
+                const gs = currentRoom.gameState;
+                const player = currentRoom.players.get(ws);
+                if (!player) return;
+                const gsPlayer = gs.players.get(player.id);
+                if (!gsPlayer) return;
+
+                gsPlayer.triviaLocked = false;
+                if (msg.success) {
+                    gsPlayer.score.triviaCorrect += 1;
+                    // Only advance phase if still on the same trivia phase (prevent multi-player skip)
+                    const triviaPhases = ['trivia_core','trivia_left','trivia_right','trivia1','trivia2','trivia3'];
+                    if (triviaPhases.includes(gs.phase)) {
+                        completeObjective(gs, currentRoom);
+                    }
+                } else {
+                    gsPlayer.triviaCooldown = Date.now() + 5000;
+                    gs.events.push({ type: 'announcement', text: 'AUTHORIZATION FAILED - 5 SEC COOLDOWN', duration: 2, color: '#ff0000', playerId: player.id });
+                }
+                break;
+            }
+
+            case 'devSkipPhase': {
+                if (!currentRoom || !currentRoom.gameState) return;
+                completeObjective(currentRoom.gameState, currentRoom);
                 break;
             }
 

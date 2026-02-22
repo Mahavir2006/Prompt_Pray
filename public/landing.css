@@ -1348,3 +1348,110 @@ body {
         letter-spacing: 0.1em;
     }
 }
+
+/* ============ LEADERBOARD ============ */
+.leaderboard-section {
+    background: linear-gradient(180deg, var(--bg) 0%, #0d1225 100%);
+}
+
+.leaderboard-container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: rgba(17, 24, 39, 0.8);
+    border: 1px solid rgba(77, 166, 255, 0.15);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.lb-header {
+    display: grid;
+    grid-template-columns: 50px 1fr 100px 90px 90px 80px 80px;
+    padding: 14px 20px;
+    background: rgba(77, 166, 255, 0.08);
+    border-bottom: 1px solid rgba(77, 166, 255, 0.2);
+    font-family: var(--font-pixel);
+    font-size: 0.55rem;
+    color: var(--blue);
+    letter-spacing: 0.1em;
+}
+
+.lb-body {
+    max-height: 600px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(77, 166, 255, 0.3) transparent;
+}
+
+.lb-body::-webkit-scrollbar { width: 6px; }
+.lb-body::-webkit-scrollbar-track { background: transparent; }
+.lb-body::-webkit-scrollbar-thumb { background: rgba(77, 166, 255, 0.3); border-radius: 3px; }
+
+.lb-row {
+    display: grid;
+    grid-template-columns: 50px 1fr 100px 90px 90px 80px 80px;
+    padding: 12px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    color: var(--white);
+    transition: background 0.2s;
+    align-items: center;
+}
+
+.lb-row:hover {
+    background: rgba(77, 166, 255, 0.06);
+}
+
+.lb-row.lb-top1 { background: rgba(255, 215, 0, 0.08); }
+.lb-row.lb-top2 { background: rgba(192, 192, 192, 0.06); }
+.lb-row.lb-top3 { background: rgba(205, 127, 50, 0.06); }
+
+.lb-row .lb-rank {
+    font-family: var(--font-orb);
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+.lb-top1 .lb-rank { color: #ffd700; }
+.lb-top2 .lb-rank { color: #c0c0c0; }
+.lb-top3 .lb-rank { color: #cd7f32; }
+
+.lb-row .lb-name {
+    font-weight: 600;
+    letter-spacing: 0.05em;
+}
+
+.lb-row .lb-role {
+    font-family: var(--font-pixel);
+    font-size: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.lb-row .lb-score {
+    font-family: var(--font-orb);
+    font-weight: 700;
+    color: var(--blue);
+}
+
+.lb-loading {
+    padding: 40px;
+    text-align: center;
+    color: var(--white50);
+    font-family: var(--font-pixel);
+    font-size: 0.6rem;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+    .lb-header, .lb-row {
+        grid-template-columns: 40px 1fr 80px 70px;
+    }
+    .lb-missions, .lb-kills, .lb-games {
+        display: none;
+    }
+}

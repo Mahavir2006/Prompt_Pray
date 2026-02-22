@@ -1,0 +1,70 @@
+{
+    "questions": [
+        {
+            "difficulty": "easy",
+            "question": "What is the primary fail-safe for the ship's fusion core?",
+            "options": [
+                "Magnetic Containment",
+                "Chemical Venting",
+                "Plasma Dumping",
+                "Kinetic Dampers"
+            ],
+            "correctAnswer": "Magnetic Containment"
+        },
+        {
+            "difficulty": "easy",
+            "question": "Which gas is used for life support system?",
+            "options": [
+                "Nitrogen",
+                "Oxygen",
+                "Carbon Dioxide",
+                "Argon"
+            ],
+            "correctAnswer": "Nitrogen"
+        },
+        {
+            "difficulty": "medium",
+            "question": "What is the atmospheric pressure of this Exoplanet?",
+            "options": [
+                "1.8x (Heavy)",
+                "0.5x (Thin)",
+                "3.0x (Crushing)",
+                "1.0x (Earth-like)"
+            ],
+            "correctAnswer": "1.8x (Heavy)"
+        },
+        {
+            "difficulty": "medium",
+            "question": "Which element is most abundant in the exoplanet's crust?",
+            "options": [
+                "Silicon",
+                "Iron",
+                "Oxygen",
+                "Magnesium"
+            ],
+            "correctAnswer": "Silicon"
+        },
+        {
+            "difficulty": "hard",
+            "question": "Which encryption secures the Ancient Data Nodes?",
+            "options": [
+                "RSA-2048 Block",
+                "Quantum Lattice",
+                "Polymorphic Hash",
+                "Fractal Cypher"
+            ],
+            "correctAnswer": "Quantum Lattice"
+        },
+        {
+            "difficulty": "hard",
+            "question": "What is the primary power source for the Ancient Data Nodes?",
+            "options": [
+                "Sub-space Resonance",
+                "Solar Capture",
+                "Geothermal Tap",
+                "Dark Matter Decay"
+            ],
+            "correctAnswer": "Sub-space Resonance"
+        }
+    ]
+}

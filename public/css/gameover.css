@@ -1,0 +1,95 @@
+/* ============ GAME OVER ============ */
+.gameover-container {
+    text-align: center;
+    max-width: 600px;
+    width: 90vw;
+}
+
+.gameover-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 3rem;
+    font-weight: 900;
+    margin-bottom: 0.2em;
+    letter-spacing: 0.15em;
+}
+
+.gameover-title.victory {
+    background: linear-gradient(135deg, #06d6a0, #4cc9f0);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.gameover-title.defeat {
+    color: #ff0000;
+}
+
+.gameover-subtitle {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 2em;
+}
+
+.final-scoreboard {
+    margin-bottom: 2em;
+}
+
+.score-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    border-radius: 8px;
+    margin-bottom: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.85rem;
+}
+
+.score-row:first-child {
+    border-color: rgba(255, 209, 102, 0.3);
+    background: rgba(255, 209, 102, 0.05);
+}
+
+.score-row .score-name {
+    font-weight: 600;
+    min-width: 100px;
+    text-align: left;
+}
+
+.score-row .score-role {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.4);
+    min-width: 80px;
+}
+
+.score-row .score-stats {
+    display: flex;
+    gap: 16px;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* ============ SCOREBOARD (in-game Tab) ============ */
+.scoreboard-overlay {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(5, 5, 16, 0.92);
+    border: 1px solid rgba(76, 201, 240, 0.2);
+    border-radius: 16px;
+    padding: 24px;
+    z-index: 60;
+    min-width: 400px;
+    backdrop-filter: blur(10px);
+}
+
+.scoreboard-overlay h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.9rem;
+    text-align: center;
+    color: #4cc9f0;
+    letter-spacing: 0.2em;
+    margin-bottom: 16px;
+}

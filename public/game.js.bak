@@ -1,0 +1,2705 @@
+// ======================== GAME CLIENT ========================
+(function () {
+    'use strict';
+
+    // ======================== CONSTANTS ========================
+    const ROLE_COLORS = {
+        vanguard: '#4cc9f0',
+        engineer: '#f4a261',
+        scout: '#06d6a0',
+        medic: '#ef476f'
+    };
+
+    // ── MAP INTEGRATION START ──
+    const MAP_SCALE = 3;
+    const MAP_ZONES = [
+        { id: 'cockpit', x: 420, y: 40, w: 184, h: 120 },
+        { id: 'cockpit_room', x: 300, y: 160, w: 424, h: 130 },
+        { id: 'corridor', x: 475, y: 160, w: 74, h: 800 },
+        { id: 'left_1', x: 255, y: 290, w: 240, h: 80 },
+        { id: 'left_2', x: 210, y: 370, w: 285, h: 80 },
+        { id: 'left_3', x: 170, y: 450, w: 325, h: 80 },
+        { id: 'left_4', x: 140, y: 530, w: 355, h: 80 },
+        { id: 'left_5', x: 110, y: 610, w: 385, h: 80 },
+        { id: 'left_6', x: 80, y: 690, w: 415, h: 70 },
+        { id: 'right_1', x: 529, y: 290, w: 240, h: 80 },
+        { id: 'right_2', x: 529, y: 370, w: 285, h: 80 },
+        { id: 'right_3', x: 529, y: 450, w: 325, h: 80 },
+        { id: 'right_4', x: 529, y: 530, w: 355, h: 80 },
+        { id: 'right_5', x: 529, y: 610, w: 385, h: 80 },
+        { id: 'right_6', x: 529, y: 690, w: 415, h: 70 },
+        { id: 'engine', x: 60, y: 760, w: 904, h: 220 },
+        { id: 'wing_left', x: 5, y: 430, w: 55, h: 100 },
+        { id: 'wing_right', x: 964, y: 430, w: 55, h: 100 },
+    ];
+    MAP_ZONES.forEach(z => { z.x *= MAP_SCALE; z.y *= MAP_SCALE; z.w *= MAP_SCALE; z.h *= MAP_SCALE; });
+
+    const OBSTACLES = [];
+
+    // Fetch precise collisions from Tiled JSON
+    fetch('/assets/ship_collisions.json').then(r => r.json()).then(mapData => {
+        const collisionLayer = mapData.layers.find(layer => layer.name === 'collisions');
+        if (collisionLayer && collisionLayer.objects) {
+            collisionLayer.objects.forEach(obj => {
+                if (obj.width === 0 && obj.height === 0) return;
+
+                let aabbX = obj.x;
+                let aabbY = obj.y;
+                let aabbW = obj.width;
+                let aabbH = obj.height;
+
+                if (obj.rotation) {
+                    const rad = obj.rotation * (Math.PI / 180);
+                    const cos = Math.cos(rad);
+                    const sin = Math.sin(rad);
+
+                    const c1 = { x: 0, y: 0 };
+                    const c2 = { x: obj.width * cos, y: obj.width * sin };
+                    const c3 = { x: -obj.height * sin, y: obj.height * cos };
+                    const c4 = { x: obj.width * cos - obj.height * sin, y: obj.width * sin + obj.height * cos };
+
+                    const minX = Math.min(c1.x, c2.x, c3.x, c4.x);
+                    const maxX = Math.max(c1.x, c2.x, c3.x, c4.x);
+                    const minY = Math.min(c1.y, c2.y, c3.y, c4.y);
+                    const maxY = Math.max(c1.y, c2.y, c3.y, c4.y);
+
+                    aabbX = obj.x + minX;
+                    aabbY = obj.y + minY;
+                    aabbW = maxX - minX;
+                    aabbH = maxY - minY;
+                }
+
+                OBSTACLES.push({
+                    type: 'rect',
+                    x: aabbX * MAP_SCALE,
+                    y: aabbY * MAP_SCALE,
+                    w: aabbW * MAP_SCALE,
+                    h: aabbH * MAP_SCALE
+                });
+            });
+        }
+    }).catch(e => console.error('Failed to load ship_collisions.json', e));
+
+    const WORLD_W = 1024 * MAP_SCALE;
+    const WORLD_H = 1024 * MAP_SCALE;
+    const PLANET_W = 1536 * MAP_SCALE;
+    const PLANET_H = 1024 * MAP_SCALE;
+    // ── MAP INTEGRATION END ──
+
+    // ======================== STATE ========================
+    let ws = null;
+    let myId = null;
+    let gameState = null;
+    let prevState = null;
+    let lastStateTime = 0;
+    let screenPhase = 'lobby'; // lobby, disclaimer, cinematic, game, gameover
+
+    // Input
+    const keys = { w: false, a: false, s: false, d: false };
+    let mouseX = 0, mouseY = 0;
+    let mouseMoved = false;
+    let mouseDown = false;
+    let interacting = false;
+    let abilityPressed = false;
+    let tabDown = false;
+
+    // Camera
+    let camX = 0, camY = 0;
+    let camShakeX = 0, camShakeY = 0;
+    let camShakeIntensity = 0;
+
+    // Particles
+    const particles = [];
+    const floatTexts = [];
+
+    // Announcements
+    let announcement = null;
+    let announcementTimer = 0;
+
+    // Cinematic
+    let cinematicTimer = 0;
+    let cinematicPlayed = false;
+    const stars = [];
+    for (let i = 0; i < 200; i++) {
+        stars.push({
+            x: Math.random() * 1200,
+            y: Math.random() * 700,
+            size: Math.random() * 2 + 0.5,
+            speed: Math.random() * 100 + 50
+        });
+    }
+
+    // ======================== CHARACTER SPRITES ========================
+    const DIRS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+    const ROLES_LIST = ['vanguard', 'engineer', 'scout', 'medic'];
+    const SPRITE_SCALE = 3; // scale up pixel art
+    const roleSprites = {};
+    let spritesLoaded = 0;
+    let totalSprites = 0;
+
+    // ── PLANET MAP INTEGRATION ──
+    const mapBgImage = loadImg('/assets/map.png');
+    const planetBgImage = loadImg('/assets/Planet_Map.png');
+    let debugMode = false;
+    let myCurrentMap = 'ship'; // Track which map the local player is on
+
+    // ── TRIVIA SYSTEM ──
+    let triviaData = null;
+    fetch('/assets/mockData.json')
+        .then(res => res.json())
+        .then(data => triviaData = data)
+        .catch(err => console.error("Failed to load trivia data", err));
+
+    let terminalOpen = false;
+    let terminalPhase = '';
+    let terminalDifficulty = '';
+    let terminalTime = 0;
+    let terminalQuestion = null;
+    let terminalTimerEvent = null;
+    let triviaAnswered = 0;  // track how many player has answered this game
+
+    // DOM refs for the HTML trivia overlay
+    const triviaOverlay     = document.getElementById('triviaOverlay');
+    const triviaCounterEl   = document.getElementById('triviaCounter');
+    const triviaQuestionEl  = document.getElementById('triviaQuestion');
+    const triviaOptionsEl   = document.getElementById('triviaOptions');
+    const triviaTimerNumEl  = document.getElementById('triviaTimerNum');
+    const triviaTimerEl     = document.getElementById('triviaTimer');
+
+    function startTrivia(difficulty, timeLimit, phase) {
+        if (!triviaData || !triviaData.questions) return;
+        terminalOpen = true;
+        terminalPhase = phase;
+        terminalDifficulty = difficulty;
+        terminalTime = timeLimit;
+
+        const filtered = triviaData.questions.filter(q => q.difficulty === difficulty);
+        if (filtered.length > 0) {
+            terminalQuestion = filtered[Math.floor(Math.random() * filtered.length)];
+        } else {
+            terminalQuestion = triviaData.questions[0];
+        }
+
+        keys.w = keys.a = keys.s = keys.d = false;
+
+        // Populate HTML terminal
+        triviaAnswered++;
+        triviaCounterEl.textContent = `QUESTION ${triviaAnswered}`;
+        triviaQuestionEl.textContent = terminalQuestion.question || '';
+        triviaTimerNumEl.textContent = terminalTime;
+        triviaTimerEl.classList.remove('tt-urgent');
+
+        // Build option buttons
+        triviaOptionsEl.innerHTML = '';
+        (terminalQuestion.options || []).forEach((opt, idx) => {
+            const label = String.fromCharCode(65 + idx);
+            const btn = document.createElement('div');
+            btn.className = 'tt-opt';
+            btn.dataset.option = opt;
+            btn.innerHTML = `<span class="tt-opt-label">${label})</span><span class="tt-opt-text">${opt}</span>`;
+            btn.addEventListener('click', () => handleTriviaClick(opt));
+            triviaOptionsEl.appendChild(btn);
+        });
+
+        // Show overlay
+        triviaOverlay.style.display = 'flex';
+
+        // Countdown timer
+        if (terminalTimerEvent) clearInterval(terminalTimerEvent);
+        terminalTimerEvent = setInterval(() => {
+            terminalTime--;
+            triviaTimerNumEl.textContent = terminalTime;
+            if (terminalTime <= 3) triviaTimerEl.classList.add('tt-urgent');
+            if (terminalTime <= 0) {
+                submitTriviaAnswer(null);
+            }
+        }, 1000);
+    }
+
+    function handleTriviaClick(selectedOption) {
+        if (!terminalOpen || !terminalQuestion) return;
+        clearInterval(terminalTimerEvent);
+
+        const isCorrect = selectedOption === terminalQuestion.correctAnswer;
+
+        // Highlight correct / wrong
+        const allOpts = triviaOptionsEl.querySelectorAll('.tt-opt');
+        allOpts.forEach(el => {
+            el.style.pointerEvents = 'none';
+            if (el.dataset.option === terminalQuestion.correctAnswer) {
+                el.classList.add('tt-correct');
+            } else if (el.dataset.option === selectedOption && !isCorrect) {
+                el.classList.add('tt-wrong');
+            }
+        });
+
+        // Brief delay to show feedback, then close
+        setTimeout(() => {
+            submitTriviaAnswer(selectedOption);
+        }, 800);
+    }
+
+    function submitTriviaAnswer(selectedOption) {
+        if (!terminalOpen) return;
+        clearInterval(terminalTimerEvent);
+        terminalOpen = false;
+
+        let success = (selectedOption !== null && selectedOption === terminalQuestion.correctAnswer);
+        if (!success) {
+            camShakeIntensity = 15;
+        }
+
+        // Hide overlay
+        triviaOverlay.style.display = 'none';
+
+        if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'triviaResult', success: success }));
+        }
+    }
+    const PLANET_OBSTACLES = [];
+    fetch('/assets/planet_collisions.json').then(r => r.json()).then(mapData => {
+        const collisionLayer = mapData.layers.find(layer => layer.name === 'collisions');
+        if (collisionLayer && collisionLayer.objects) {
+            collisionLayer.objects.forEach(obj => {
+                if (obj.width > 0 && obj.height > 0) {
+                    let aabbX = obj.x, aabbY = obj.y, aabbW = obj.width, aabbH = obj.height;
+                    if (obj.rotation) {
+                        const rad = obj.rotation * (Math.PI / 180);
+                        const cos = Math.cos(rad), sin = Math.sin(rad);
+                        const c1 = { x: 0, y: 0 };
+                        const c2 = { x: obj.width * cos, y: obj.width * sin };
+                        const c3 = { x: -obj.height * sin, y: obj.height * cos };
+                        const c4 = { x: obj.width * cos - obj.height * sin, y: obj.width * sin + obj.height * cos };
+                        aabbX = obj.x + Math.min(c1.x, c2.x, c3.x, c4.x);
+                        aabbY = obj.y + Math.min(c1.y, c2.y, c3.y, c4.y);
+                        aabbW = Math.max(c1.x, c2.x, c3.x, c4.x) - Math.min(c1.x, c2.x, c3.x, c4.x);
+                        aabbH = Math.max(c1.y, c2.y, c3.y, c4.y) - Math.min(c1.y, c2.y, c3.y, c4.y);
+                    }
+                    if (obj.ellipse) {
+                        PLANET_OBSTACLES.push({ type: 'circle', x: (aabbX + aabbW / 2) * MAP_SCALE, y: (aabbY + aabbH / 2) * MAP_SCALE, r: Math.max(aabbW, aabbH) / 2 * MAP_SCALE });
+                    } else {
+                        PLANET_OBSTACLES.push({ type: 'rect', x: aabbX * MAP_SCALE, y: aabbY * MAP_SCALE, w: aabbW * MAP_SCALE, h: aabbH * MAP_SCALE });
+                    }
+                }
+                if (obj.polygon && obj.polygon.length > 2) {
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    obj.polygon.forEach(p => {
+                        const px = obj.x + p.x, py = obj.y + p.y;
+                        if (px < minX) minX = px; if (py < minY) minY = py;
+                        if (px > maxX) maxX = px; if (py > maxY) maxY = py;
+                    });
+                    const w = maxX - minX, h = maxY - minY;
+                    if (w > 5 && h > 5) {
+                        PLANET_OBSTACLES.push({ type: 'rect', x: minX * MAP_SCALE, y: minY * MAP_SCALE, w: w * MAP_SCALE, h: h * MAP_SCALE });
+                    }
+                }
+            });
+        }
+    }).catch(e => console.error('Failed to load planet_collisions.json', e));
+
+    function loadImg(src) {
+        totalSprites++;
+        const img = new Image();
+        img.src = src;
+        img.onload = () => spritesLoaded++;
+        img.onerror = () => { console.warn('Missing sprite:', src); spritesLoaded++; }; // gracefully handle missing frames
+        return img;
+    }
+
+    ROLES_LIST.forEach(role => {
+        roleSprites[role] = { idle: {}, walk: {}, death: {}, sword: {} };
+
+        // Idle rotations
+        DIRS.forEach(dir => {
+            roleSprites[role].idle[dir] = loadImg(`/assets/${role}/rotations/${dir}.png`);
+        });
+
+        // Walk animation (6 frames per direction)
+        DIRS.forEach(dir => {
+            roleSprites[role].walk[dir] = [];
+            for (let i = 0; i < 6; i++) {
+                roleSprites[role].walk[dir].push(loadImg(`/assets/${role}/animations/walk/${dir}/frame_${String(i).padStart(3, '0')}.png`));
+            }
+        });
+
+        // Death animation (7 frames)
+        DIRS.forEach(dir => {
+            roleSprites[role].death[dir] = [];
+            for (let i = 0; i < 7; i++) {
+                roleSprites[role].death[dir].push(loadImg(`/assets/${role}/animations/falling-back-death/${dir}/frame_${String(i).padStart(3, '0')}.png`));
+            }
+        });
+    });
+
+    // Sword (Vanguard only)
+    DIRS.forEach(dir => {
+        roleSprites.vanguard.sword[dir] = loadImg(`/assets/sword-vanguard/rotations/${dir}.png`);
+    });
+
+    // Weapon sprites for other roles
+    const spearImg = loadImg('/assets/spear.png');
+    const gunImg = loadImg('/assets/gun.png');
+    const medboxImg = loadImg('/assets/medbox.png');
+    const bulletImg = loadImg('/assets/bullets.png');
+
+    // Dog enemy sprite frames (legacy fallback)
+    const dogSprites = { idle: [], walk: [], attack: [], death: [] };
+    for (let i = 0; i < 8; i++) dogSprites.idle.push(loadImg(`/assets/dog/idle/frame_${String(i).padStart(3, '0')}.png`));
+    for (let i = 0; i < 12; i++) dogSprites.walk.push(loadImg(`/assets/dog/walk/frame_${String(i).padStart(3, '0')}.png`));
+    for (let i = 0; i < 8; i++) dogSprites.attack.push(loadImg(`/assets/dog/attack/frame_${String(i).padStart(3, '0')}.png`));
+    for (let i = 0; i < 5; i++) dogSprites.death.push(loadImg(`/assets/dog/death/frame_${String(i).padStart(3, '0')}.png`));
+
+    // Orc enemy spritesheets (64x64 cells, 4 direction rows: 0=south, 1=west, 2=east, 3=north)
+    const ORC_FRAME = 64; // px per cell
+    const ORC_FRAME_COUNTS = { idle: 4, walk: 6, attack: 8, death: 8, run: 8, hurt: 6 };
+    // Direction rows: 0=south(down), 1=west(left), 2=east(right), 3=north(up)
+    function loadOrcSheet(name) {
+        const sheets = {};
+        for (const action of ['idle', 'walk', 'attack', 'death', 'run', 'hurt']) {
+            sheets[action] = loadImg(`/assets/${name}/${action}.png`);
+        }
+        return sheets;
+    }
+    function getOrcDirRow(dx, dy) {
+        // Pick spritesheet row based on movement direction
+        if (Math.abs(dx) < 0.3 && Math.abs(dy) < 0.3) return 0; // default south
+        if (Math.abs(dx) > Math.abs(dy)) {
+            return dx < 0 ? 1 : 2; // west or east
+        }
+        return dy < 0 ? 3 : 0; // north or south
+    }
+    const orcSprites = {
+        orc1: loadOrcSheet('orc1'),
+        orc2: loadOrcSheet('orc2'),
+        orc3: loadOrcSheet('orc3'),
+    };
+
+    // Enemy animation state tracking
+    const enemyAnimState = {};
+    function getEnemyAnim(id) {
+        if (!enemyAnimState[id]) {
+            enemyAnimState[id] = { frame: 0, timer: 0, prevX: 0, prevY: 0 };
+        }
+        return enemyAnimState[id];
+    }
+
+    // Per-player animation tracking
+    const playerAnimState = {};
+    function getAnimState(id) {
+        if (!playerAnimState[id]) {
+            playerAnimState[id] = { walkFrame: 0, walkTimer: 0, deathFrame: 0, deathTimer: 0, deathDone: false, prevX: 0, prevY: 0, spearThrown: 0 };
+        }
+        return playerAnimState[id];
+    }
+
+    // convert angle to 8-direction name
+    function angleToDir(angle) {
+        // angle is in radians, 0 = east
+        const deg = ((angle * 180 / Math.PI) + 360) % 360;
+        if (deg >= 337.5 || deg < 22.5) return 'east';
+        if (deg >= 22.5 && deg < 67.5) return 'south-east';
+        if (deg >= 67.5 && deg < 112.5) return 'south';
+        if (deg >= 112.5 && deg < 157.5) return 'south-west';
+        if (deg >= 157.5 && deg < 202.5) return 'west';
+        if (deg >= 202.5 && deg < 247.5) return 'north-west';
+        if (deg >= 247.5 && deg < 292.5) return 'north';
+        return 'north-east';
+    }
+
+    // ======================== VOICE CHAT (WEBRTC) ========================
+    let localStream = null;
+    let selectedAudioDeviceId = null;
+    let speakerEnabled = false;
+    const peerConnections = {};
+    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    // State per peer for Perfect Negotiation
+    const pcStates = {}; // peerId -> { makingOffer: false }
+
+    async function toggleSpeaker(forceState) {
+        if (forceState !== undefined) speakerEnabled = forceState;
+        else speakerEnabled = !speakerEnabled;
+
+        const btn = document.getElementById('speakerBtn');
+        if (!btn) return;
+
+        if (speakerEnabled) {
+            btn.textContent = 'SPEAKER ON';
+            btn.style.background = 'rgba(6, 214, 160, 0.2)';
+            btn.style.borderColor = 'rgba(6, 214, 160, 0.5)';
+            btn.style.color = '#06d6a0';
+
+            document.querySelectorAll('audio').forEach(el => el.muted = false);
+
+            const speakerSelect = document.getElementById('speakerSelect');
+            if (speakerSelect && navigator.mediaDevices.enumerateDevices) {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+                    if (audioOutputs.length > 0) {
+                        speakerSelect.innerHTML = audioOutputs.map((d, i) =>
+                            `<option value="${d.deviceId}">${d.label || 'Speaker ' + (i + 1)}</option>`
+                        ).join('');
+                        speakerSelect.style.display = 'inline-block';
+                        speakerSelect.onchange = () => {
+                            selectedAudioDeviceId = speakerSelect.value;
+                            document.querySelectorAll('audio').forEach(el => {
+                                if (typeof el.setSinkId === 'function') {
+                                    el.setSinkId(selectedAudioDeviceId).catch(e => console.warn("Sink update failed:", e));
+                                }
+                            });
+                        };
+                        selectedAudioDeviceId = speakerSelect.value;
+                    }
+                } catch (e) {
+                    console.warn(e);
+                }
+            }
+        } else {
+            btn.textContent = 'SPEAKER OFF';
+            btn.style.background = 'rgba(230, 57, 70, 0.2)';
+            btn.style.borderColor = 'rgba(230, 57, 70, 0.5)';
+            btn.style.color = '#e63946';
+
+            document.querySelectorAll('audio').forEach(el => el.muted = true);
+
+            const speakerSelect = document.getElementById('speakerSelect');
+            if (speakerSelect) speakerSelect.style.display = 'none';
+            selectedAudioDeviceId = null;
+        }
+    }
+
+    async function toggleMic() {
+        const btn = document.getElementById('micBtn');
+        if (localStream) {
+            // Disable Mic
+            localStream.getTracks().forEach(t => t.stop());
+            localStream = null;
+
+            // Remove tracks instead of closing the connection so Speaker can keep listening!
+            Object.values(peerConnections).forEach(pc => {
+                const senders = pc.getSenders();
+                senders.forEach(s => {
+                    if (s.track && s.track.kind === 'audio') {
+                        pc.removeTrack(s);
+                    }
+                });
+            });
+
+            btn.textContent = 'MIC OFF';
+            btn.style.background = 'rgba(230, 57, 70, 0.2)';
+            btn.style.borderColor = 'rgba(230, 57, 70, 0.5)';
+            btn.style.color = '#e63946';
+            return;
+        }
+
+        try {
+            // Get Mic Access
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+
+            btn.textContent = 'MIC ON (LIVE)';
+            btn.style.background = 'rgba(6, 214, 160, 0.2)';
+            btn.style.borderColor = 'rgba(6, 214, 160, 0.5)';
+            btn.style.color = '#06d6a0';
+
+            // Add local track to any existing peer connections right away (this triggers onnegotiationneeded automatically!)
+            Object.keys(peerConnections).forEach(pidStr => {
+                const pid = parseInt(pidStr);
+                const pc = peerConnections[pid];
+                const hasTrack = pc.getSenders().some(s => s.track && s.track.kind === 'audio');
+                if (!hasTrack && pc.signalingState !== 'closed') {
+                    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+                }
+            });
+
+            if (activePlayerIds.length > 0) {
+                connectToPeers(activePlayerIds);
+            }
+
+            // Refresh speaker dropdown labels if speaker is enabled without recursively flipping state
+            if (speakerEnabled) {
+                await toggleSpeaker(true);
+            }
+
+        } catch (e) {
+            console.warn("Mic access denied or error:", e);
+            if (!navigator.mediaDevices) {
+                showError("HTTPS or localhost required for microphone.");
+            } else if (e.name === "NotAllowedError" || e.name === "PermissionDeniedError") {
+                showError("Microphone permission blocked by browser.");
+            } else if (e.name === "NotFoundError" || e.name === "DevicesNotFoundError") {
+                showError("No microphone found.");
+            } else {
+                showError("Mic error: " + e.message);
+            }
+        }
+    }
+
+    function getPeerConnection(peerId) {
+        if (peerConnections[peerId]) return peerConnections[peerId];
+        const pc = new RTCPeerConnection(rtcConfig);
+        peerConnections[peerId] = pc;
+        pcStates[peerId] = { makingOffer: false };
+
+        if (localStream) {
+            localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+        }
+
+        pc.onnegotiationneeded = async () => {
+            try {
+                pcStates[peerId].makingOffer = true;
+                await pc.setLocalDescription();
+                if (ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: peerId, signalData: { offer: pc.localDescription } }));
+                }
+            } catch (err) {
+                console.warn("Negotiation error:", err);
+            } finally {
+                pcStates[peerId].makingOffer = false;
+            }
+        };
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate && ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: peerId, signalData: { candidate: e.candidate } }));
+            }
+        };
+        pc.ontrack = async (e) => {
+            let audioEl = document.getElementById('audio_' + peerId);
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.id = 'audio_' + peerId;
+                audioEl.autoplay = true;
+                audioEl.muted = !speakerEnabled; // ONLY audibly play if speaker is enabled
+
+                // Set the selected speaker device if chosen
+                if (selectedAudioDeviceId && typeof audioEl.setSinkId === 'function') {
+                    try {
+                        await audioEl.setSinkId(selectedAudioDeviceId);
+                    } catch (err) {
+                        console.warn("Failed to set speaker output", err);
+                    }
+                }
+
+                document.body.appendChild(audioEl);
+            }
+            audioEl.srcObject = e.streams[0];
+        };
+        return pc;
+    }
+
+    function connectToPeers(playerIds) {
+        for (const pid of playerIds) {
+            if (pid !== myId && !peerConnections[pid]) {
+                const pc = getPeerConnection(pid);
+                // Only the "smaller" ID establishes the initial polite mesh connection line to prevent simultaneous cross-firing glare
+                if (myId < pid) {
+                    pc.createDataChannel('gameData');
+                }
+            }
+        }
+    }
+
+    async function handleWebRTCSignal(msg) {
+        const senderId = msg.senderId;
+        const data = msg.signalData;
+        const pc = getPeerConnection(senderId);
+        const state = pcStates[senderId];
+
+        // Perfect Negotiation Pattern
+        const polite = myId > senderId; // Lower ID (Host usually) is impolite, Higher ID is polite
+
+        try {
+            if (data.offer) {
+                const offerCollision = (state.makingOffer || pc.signalingState !== "stable");
+                if (offerCollision) {
+                    if (!polite) return; // Impolite peer ignores the incoming offer and sticks to its own
+                    await Promise.all([
+                        pc.setLocalDescription({ type: "rollback" }),
+                        pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+                    ]);
+                } else {
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                }
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                ws.send(JSON.stringify({ type: 'webrtc_signal', targetId: senderId, signalData: { answer: pc.localDescription } }));
+            } else if (data.answer) {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            } else if (data.candidate) {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            }
+        } catch (e) {
+            console.warn("WebRTC error handling signal from", senderId, e);
+        }
+    }
+
+    // ======================== CANVAS SETUP ========================
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // ======================== DOM ELEMENTS ========================
+    const lobbyOverlay = document.getElementById('lobbyOverlay');
+    const connectScreen = document.getElementById('connectScreen');
+    const roomScreen = document.getElementById('roomScreen');
+    const gameOverOverlay = document.getElementById('gameOverOverlay');
+    const disclaimerOverlay = document.getElementById('disclaimerOverlay');
+    const hud = document.getElementById('hud');
+    const timerDisplay = document.getElementById('timerDisplay');
+    const objectiveDisplay = document.getElementById('objectiveDisplay');
+    const phaseDisplay = document.getElementById('phaseDisplay');
+    const hudHpBar = document.getElementById('hudHpBar');
+    const hudHpText = document.getElementById('hudHpText');
+    const hudAbility = document.getElementById('hudAbility');
+    const hudAbilityCd = document.getElementById('hudAbilityCd');
+
+    // ======================== DISCLAIMER / GUIDELINES ========================
+    const DISCLAIMER_TEXT = "This is a classified field operation. All personnel are hereby briefed under Protocol Sigma-7. " +
+        "Your team has been deployed to an uncharted exoplanet following a catastrophic ship failure. " +
+        "Communication with Command is severed. Survival depends on cooperation, quick thinking, and decisive action. " +
+        "This simulation contains combat scenarios, timed objectives, and knowledge verification terminals. " +
+        "Failure to complete the mission within the allotted timeframe will result in total loss. Proceed with caution.";
+
+    function showDisclaimer(callback) {
+        if (!disclaimerOverlay) { callback(); return; }
+        disclaimerOverlay.style.display = 'flex';
+        const textEl = document.getElementById('disclaimerText');
+        const guidelinesBox = document.getElementById('guidelinesBox');
+        const continueBtn = document.getElementById('disclaimerContinueBtn');
+
+        textEl.innerHTML = '<span class="cursor-blink"></span>';
+        guidelinesBox.style.display = 'none';
+        continueBtn.style.display = 'none';
+
+        // Typewriter effect
+        let charIdx = 0;
+        const typeSpeed = 18;
+        const typeInterval = setInterval(() => {
+            if (charIdx < DISCLAIMER_TEXT.length) {
+                textEl.innerHTML = DISCLAIMER_TEXT.substring(0, charIdx + 1) + '<span class="cursor-blink"></span>';
+                charIdx++;
+            } else {
+                clearInterval(typeInterval);
+                textEl.innerHTML = DISCLAIMER_TEXT;
+                // Show guidelines after a beat
+                setTimeout(() => {
+                    guidelinesBox.style.display = 'block';
+                    setTimeout(() => {
+                        continueBtn.style.display = 'inline-block';
+                    }, 600);
+                }, 400);
+            }
+        }, typeSpeed);
+
+        // Allow skipping typewriter by clicking text area
+        textEl.style.cursor = 'pointer';
+        textEl.onclick = () => {
+            if (charIdx < DISCLAIMER_TEXT.length) {
+                charIdx = DISCLAIMER_TEXT.length;
+                clearInterval(typeInterval);
+                textEl.innerHTML = DISCLAIMER_TEXT;
+                guidelinesBox.style.display = 'block';
+                setTimeout(() => { continueBtn.style.display = 'inline-block'; }, 300);
+            }
+        };
+
+        continueBtn.onclick = () => {
+            disclaimerOverlay.style.display = 'none';
+            callback();
+        };
+    }
+
+    let activePlayerIds = [];
+
+    // ======================== LOBBY LOGIC ========================
+    document.getElementById('speakerBtn').onclick = () => toggleSpeaker();
+    document.getElementById('micBtn').onclick = () => toggleMic();
+    document.getElementById('createBtn').onclick = () => {
+        const name = document.getElementById('nameInput').value.trim();
+        if (!name) return showError('Enter a Callsign');
+        connect(() => {
+            ws.send(JSON.stringify({ type: 'createRoom', name }));
+        });
+    };
+
+    document.getElementById('joinBtn').onclick = () => {
+        const name = document.getElementById('nameInput').value.trim();
+        if (!name) return showError('Enter a Callsign');
+        const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+        if (!code) return showError('Enter a Room Code');
+        connect(() => {
+            ws.send(JSON.stringify({ type: 'joinRoom', name, roomCode: code }));
+        });
+    };
+
+    document.querySelectorAll('.role-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const role = card.dataset.role;
+            if (ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: 'selectRole', role }));
+            }
+        });
+    });
+
+    document.getElementById('readyBtn').onclick = () => {
+        if (ws) ws.send(JSON.stringify({ type: 'ready' }));
+    };
+
+    document.getElementById('copyCodeBtn').onclick = () => {
+        const code = document.getElementById('roomCodeDisplay').textContent;
+        navigator.clipboard.writeText(code).then(() => {
+            const btn = document.getElementById('copyCodeBtn');
+            btn.textContent = '✅';
+            setTimeout(() => { btn.textContent = '📋'; }, 1500);
+        });
+    };
+
+    document.getElementById('startBtn').onclick = () => {
+        if (ws) ws.send(JSON.stringify({ type: 'startGame' }));
+    };
+
+    document.getElementById('backToLobbyBtn').onclick = () => {
+        gameOverOverlay.style.display = 'none';
+        lobbyOverlay.style.display = 'flex';
+        connectScreen.style.display = 'block';
+        roomScreen.style.display = 'none';
+        screenPhase = 'lobby';
+        gameState = null;
+        if (ws) ws.close();
+    };
+
+    function showError(msg) {
+        document.getElementById('errorMsg').textContent = msg;
+        setTimeout(() => { document.getElementById('errorMsg').textContent = ''; }, 3000);
+    }
+
+    let selectedRole = null;
+
+    function updateLobbyUI(data) {
+        document.getElementById('roomCodeDisplay').textContent = data.roomCode;
+        activePlayerIds = data.players.map(p => p.id);
+        connectToPeers(activePlayerIds);
+
+        const takenRoles = new Set();
+        data.players.forEach(p => { if (p.role && p.id !== myId) takenRoles.add(p.role); });
+        const myPlayer = data.players.find(p => p.id === myId);
+        selectedRole = myPlayer?.role;
+
+        document.querySelectorAll('.role-card').forEach(card => {
+            const role = card.dataset.role;
+            card.classList.toggle('selected', role === selectedRole);
+            card.classList.toggle('taken', takenRoles.has(role));
+        });
+
+        const isHost = myPlayer?.isHost;
+        const readyBtn = document.getElementById('readyBtn');
+        readyBtn.style.display = isHost ? 'none' : 'inline-block';
+        readyBtn.classList.toggle('active', myPlayer?.ready);
+        readyBtn.textContent = myPlayer?.ready ? '✓ READY' : 'READY';
+
+        const playerList = document.getElementById('playerList');
+        playerList.innerHTML = data.players.map(p => `
+      <div class="player-tag ${p.ready ? 'ready' : ''}">
+        <span class="ready-dot"></span>
+        <span>${p.name}</span>
+        <span style="color:${ROLE_COLORS[p.role] || '#555'}">${p.role ? p.role.toUpperCase() : '—'}</span>
+        ${p.isHost ? '<span class="host-badge">HOST</span>' : ''}
+      </div>
+    `).join('');
+
+        const startBtn = document.getElementById('startBtn');
+        startBtn.style.display = isHost ? 'inline-block' : 'none';
+        startBtn.disabled = !data.canStart;
+    }
+
+    // ======================== WEBSOCKET ========================
+    function connect(onOpen) {
+        if (ws) {
+            ws.onclose = null;
+            ws.close();
+            ws = null;
+            Object.values(peerConnections).forEach(pc => pc.close());
+            for (let key in peerConnections) delete peerConnections[key];
+        }
+
+        const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+        ws = new WebSocket(`${protocol}://${location.host}`);
+
+        ws.onopen = () => {
+            if (onOpen) onOpen();
+        };
+
+        ws.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+            handleMessage(msg);
+        };
+
+        ws.onclose = () => {
+            if (screenPhase === 'game') {
+                showAnnouncement('DISCONNECTED', 5, '#e63946');
+            }
+        };
+
+        ws.onerror = () => {
+            showError('Connection failed. Server might be down!');
+        };
+    }
+
+    function handleMessage(msg) {
+        switch (msg.type) {
+            case 'roomCreated':
+            case 'roomJoined':
+                myId = msg.playerId;
+                connectScreen.style.display = 'none';
+                roomScreen.style.display = 'block';
+                document.getElementById('roomCodeDisplay').textContent = msg.roomCode;
+                break;
+
+            case 'lobbyUpdate':
+                updateLobbyUI(msg);
+                break;
+
+            case 'assignId':
+                myId = msg.playerId;
+                break;
+
+            case 'gameStart':
+                lobbyOverlay.style.display = 'none';
+                hud.style.display = 'none';
+                cinematicTimer = 0;
+                triviaAnswered = 0;
+                cinematicPlayed = false;
+                // Show disclaimer first, then start cinematic
+                screenPhase = 'disclaimer';
+                showDisclaimer(() => {
+                    screenPhase = 'cinematic';
+                    cinematicTimer = 0;
+                });
+                break;
+
+            case 'gameState':
+                prevState = gameState;
+                gameState = msg;
+                lastStateTime = performance.now();
+
+                // Transition from cinematic to game (only after local cinematic has finished)
+                if (screenPhase === 'cinematic' && cinematicPlayed) {
+                    screenPhase = 'game';
+                    hud.style.display = 'block';
+                }
+
+                // Process events
+                if (msg.events) {
+                    msg.events.forEach(processEvent);
+                }
+                break;
+
+            case 'gameOver':
+                screenPhase = 'gameover';
+                hud.style.display = 'none';
+                showGameOver(msg);
+                break;
+
+            case 'error':
+                showError(msg.message);
+                break;
+
+            case 'webrtc_signal':
+                handleWebRTCSignal(msg);
+                break;
+        }
+    }
+
+    function processEvent(evt) {
+        switch (evt.type) {
+            case 'damage':
+                floatTexts.push({
+                    x: evt.x, y: evt.y,
+                    text: '-' + evt.value,
+                    color: evt.color || '#e63946',
+                    life: 1.0,
+                    vy: -50
+                });
+                addShake(3);
+                break;
+            case 'heal':
+                floatTexts.push({
+                    x: evt.x, y: evt.y,
+                    text: '+' + evt.value,
+                    color: '#06d6a0',
+                    life: 1.0,
+                    vy: -50
+                });
+                break;
+            case 'kill':
+                for (let i = 0; i < 8; i++) {
+                    particles.push({
+                        x: evt.x, y: evt.y,
+                        vx: (Math.random() - 0.5) * 200,
+                        vy: (Math.random() - 0.5) * 200,
+                        life: 0.6,
+                        color: '#e63946',
+                        size: 3
+                    });
+                }
+                break;
+            case 'melee':
+                for (let i = 0; i < 5; i++) {
+                    particles.push({
+                        x: evt.x + (Math.random() - 0.5) * 20,
+                        y: evt.y + (Math.random() - 0.5) * 20,
+                        vx: Math.cos(evt.angle) * (100 + Math.random() * 50),
+                        vy: Math.sin(evt.angle) * (100 + Math.random() * 50),
+                        life: 0.3,
+                        color: '#4cc9f0',
+                        size: 4
+                    });
+                }
+                break;
+            case 'turretShot':
+                particles.push({
+                    x: evt.x1, y: evt.y1,
+                    vx: (evt.x2 - evt.x1) * 2, vy: (evt.y2 - evt.y1) * 2,
+                    life: 0.15, color: '#f4a261', size: 3
+                });
+                break;
+            case 'announcement':
+                if (evt.playerId && evt.playerId !== myId) break;
+                showAnnouncement(evt.text, evt.duration || 3, evt.color);
+                break;
+            case 'startTrivia':
+                if (evt.playerId === myId) {
+                    startTrivia(evt.difficulty, evt.timeLimit, evt.phase);
+                }
+                break;
+            case 'chat':
+                displayChatMessage(evt.name, evt.msg, evt.color);
+                break;
+        }
+    }
+
+    function displayChatMessage(name, msg, color) {
+        const chatMessages = document.getElementById('chatMessages');
+        if (!chatMessages) return;
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'chat-message';
+        // Style name with color
+        msgDiv.innerHTML = `<span class="author" style="color:${color}">${name}:</span>${msg}`;
+
+        chatMessages.appendChild(msgDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll
+
+        // Fade out after 10s
+        setTimeout(() => {
+            msgDiv.classList.add('fade-out');
+            setTimeout(() => {
+                if (chatMessages.contains(msgDiv)) {
+                    chatMessages.removeChild(msgDiv);
+                }
+            }, 1000); // Wait for CSS transition
+        }, 10000);
+    }
+
+    function showAnnouncement(text, duration, color) {
+        announcement = { text, color: color || '#fff' };
+        announcementTimer = duration;
+        phaseDisplay.textContent = text;
+        phaseDisplay.style.color = color || '#fff';
+        phaseDisplay.classList.add('show');
+        setTimeout(() => phaseDisplay.classList.remove('show'), duration * 1000);
+    }
+
+    function showGameOver(msg) {
+        gameOverOverlay.style.display = 'flex';
+        const title = document.getElementById('gameOverTitle');
+        const subtitle = document.getElementById('gameOverSubtitle');
+        const scoreboard = document.getElementById('finalScoreboard');
+
+        if (msg.victory) {
+            title.textContent = 'MISSION COMPLETE';
+            title.className = 'gameover-title victory';
+            subtitle.textContent = `Transmission sent. Extraction incoming. Time remaining: ${Math.floor(msg.timeRemaining)}s`;
+        } else {
+            title.textContent = 'GAME OVER';
+            title.className = 'gameover-title defeat';
+            subtitle.textContent = 'All personnel lost. The signal was never sent.';
+        }
+
+        scoreboard.innerHTML = msg.scores.map((s, i) => `
+      <div class="score-row">
+        <span class="score-name">${i === 0 ? '★ ' : ''}${s.name}</span>
+        <span class="score-role" style="color:${ROLE_COLORS[s.role]}">${s.role?.toUpperCase()}</span>
+        <span class="score-stats">
+          <span>⚔ ${Math.round(s.damageDealt)}</span>
+          <span>♥ ${Math.round(s.healingDone)}</span>
+          <span>☠ ${s.enemiesKilled}</span>
+          <span style="color:#4cc9f0;font-weight:bold;">+${s.earned || 0} PTS</span>
+        </span>
+      </div>
+    `).join('');
+    }
+
+    // ======================== INPUT ========================
+    window.addEventListener('keydown', (e) => {
+        const k = e.key.toLowerCase();
+
+        // Chat toggle
+        const chatInput = document.getElementById('chatInput');
+        if (chatInput && document.activeElement === chatInput) {
+            if (e.key === 'Enter') {
+                const text = chatInput.value.trim();
+                if (text.length > 0 && ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({ type: 'chat', msg: text }));
+                }
+                chatInput.value = '';
+                chatInput.blur();
+                chatInput.style.display = 'none';
+            } else if (e.key === 'Escape') {
+                chatInput.value = '';
+                chatInput.blur();
+                chatInput.style.display = 'none';
+            }
+            return; // Block movement keys while typing
+        }
+
+        // Open chat if not typing elsewhere
+        if (e.key === 'Enter' && screenPhase === 'game') {
+            if (chatInput) {
+                chatInput.style.display = 'block';
+                chatInput.focus();
+            }
+            e.preventDefault();
+            return;
+        }
+
+        if (e.target.tagName === 'INPUT') return;
+
+        if (terminalOpen) {
+            // Block all game keys while trivia overlay is shown (answers are via click)
+            return;
+        }
+
+        if (k === 'w') keys.w = true;
+        if (k === 'a') keys.a = true;
+        if (k === 's') keys.s = true;
+        if (k === 'd') keys.d = true;
+        if (k === 'e') interacting = true;
+        if (k === 'q') abilityPressed = true;
+        if (k === 'tab') { tabDown = true; e.preventDefault(); }
+        // ── MAP INTEGRATION: debug toggle ──
+        if (k === 'f3') { debugMode = !debugMode; e.preventDefault(); }
+        // Dev skip phase toggle
+        if (k === 'k') {
+            if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'devSkipPhase' }));
+            e.preventDefault();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const k = e.key.toLowerCase();
+        if (k === 'w') keys.w = false;
+        if (k === 'a') keys.a = false;
+        if (k === 's') keys.s = false;
+        if (k === 'd') keys.d = false;
+        if (k === 'e') interacting = false;
+        if (k === 'q') abilityPressed = false;
+        if (k === 'tab') { tabDown = false; e.preventDefault(); }
+    });
+
+    canvas.addEventListener('mousemove', e => {
+        mouseMoved = true;
+        const rect = canvas.getBoundingClientRect();
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+    });
+    canvas.addEventListener('mousedown', (e) => { if (e.button === 0) mouseDown = true; });
+    canvas.addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Reset all keys when window loses focus (Bug #15)
+    window.addEventListener('blur', () => {
+        keys.w = keys.a = keys.s = keys.d = false;
+        mouseDown = false;
+        interacting = false;
+        abilityPressed = false;
+        tabDown = false;
+    });
+
+    // Send input to server at 20Hz
+    setInterval(() => {
+        if (!ws || ws.readyState !== 1 || screenPhase !== 'game' || !gameState) return;
+        const worldMouseX = mouseX + camX - canvas.width / 2;
+        const worldMouseY = mouseY + camY - canvas.height / 2;
+        ws.send(JSON.stringify({
+            type: 'input',
+            w: keys.w, a: keys.a, s: keys.s, d: keys.d,
+            mouseX: worldMouseX, mouseY: worldMouseY,
+            attack: mouseDown, interact: interacting, ability: abilityPressed
+        }));
+    }, 50);
+
+    // ======================== CAMERA ========================
+    function updateCamera(dt) {
+        if (!gameState) return;
+        const me = gameState.players.find(p => p.id === myId);
+        if (!me) return;
+
+        // Track local player's current map
+        if (me.currentMap && me.currentMap !== myCurrentMap) {
+            myCurrentMap = me.currentMap;
+        }
+
+        const targetX = me.x;
+        const targetY = me.y;
+        camX += (targetX - camX) * 0.1;
+        camY += (targetY - camY) * 0.1;
+
+        // ── MAP INTEGRATION: clamp camera to world bounds (per map) ──
+        const halfW = canvas.width / 2;
+        const halfH = canvas.height / 2;
+        const worldW = myCurrentMap === 'planet' ? PLANET_W : WORLD_W;
+        const worldH = myCurrentMap === 'planet' ? PLANET_H : WORLD_H;
+        camX = Math.max(halfW, Math.min(worldW - halfW, camX));
+        camY = Math.max(halfH, Math.min(worldH - halfH, camY));
+        // If canvas is larger than world, center it
+        if (canvas.width >= worldW) camX = worldW / 2;
+        if (canvas.height >= worldH) camY = worldH / 2;
+
+        // Camera shake
+        if (camShakeIntensity > 0) {
+            camShakeX = (Math.random() - 0.5) * camShakeIntensity * 2;
+            camShakeY = (Math.random() - 0.5) * camShakeIntensity * 2;
+            camShakeIntensity *= 0.9;
+            if (camShakeIntensity < 0.5) camShakeIntensity = 0;
+        } else {
+            camShakeX = 0;
+            camShakeY = 0;
+        }
+    }
+
+    function addShake(amount) {
+        camShakeIntensity = Math.min(camShakeIntensity + amount, 15);
+    }
+
+    function worldToScreen(wx, wy) {
+        return {
+            x: wx - camX + canvas.width / 2 + camShakeX,
+            y: wy - camY + canvas.height / 2 + camShakeY
+        };
+    }
+
+    // ======================== PARTICLES ========================
+    function updateParticles(dt) {
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.life -= dt;
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+        for (let i = floatTexts.length - 1; i >= 0; i--) {
+            const t = floatTexts[i];
+            t.y += t.vy * dt;
+            t.life -= dt;
+            if (t.life <= 0) floatTexts.splice(i, 1);
+        }
+    }
+
+    // ======================== RENDERER ========================
+    function render(dt) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (screenPhase === 'cinematic') {
+            renderCinematic(dt);
+            return;
+        }
+
+        if (screenPhase !== 'game' || !gameState) {
+            // Draw star background for lobby
+            ctx.fillStyle = '#050510';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            for (const star of stars) {
+                ctx.fillStyle = `rgba(255,255,255,${0.3 + Math.random() * 0.4})`;
+                ctx.fillRect(star.x % canvas.width, star.y % canvas.height, star.size, star.size);
+            }
+            return;
+        }
+
+        updateCamera(dt);
+
+        // Background
+        ctx.fillStyle = '#030308';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw distant stars
+        ctx.save();
+        for (const star of stars) {
+            const sx = ((star.x - camX * 0.1) % canvas.width + canvas.width) % canvas.width;
+            const sy = ((star.y - camY * 0.05) % canvas.height + canvas.height) % canvas.height;
+            ctx.fillStyle = `rgba(255,255,255,${0.2 + Math.random() * 0.3})`;
+            ctx.fillRect(sx, sy, star.size * 0.7, star.size * 0.7);
+        }
+        ctx.restore();
+
+        // Draw map zones
+        drawMap();
+
+        // Draw objective marker
+        drawObjective();
+
+        // Draw turrets
+        drawTurrets();
+
+        // Draw enemies
+        drawEnemies();
+
+        // Draw boss
+        if (gameState.boss) drawBoss();
+
+        // Draw projectiles
+        drawProjectiles();
+
+        // Draw players
+        drawPlayers(dt);
+
+        // Draw particles
+        drawParticles();
+
+        // Draw floating texts
+        drawFloatTexts();
+
+        // Draw minimap
+        drawMinimap();
+
+        // Draw scoreboard (Tab)
+        if (tabDown) drawScoreboard();
+
+        // Update HUD
+        updateHUD();
+    }
+
+    // ── MAP INTEGRATION START ──
+    function drawMap() {
+        // Draw the correct map image based on the local player's current map
+        const s = worldToScreen(0, 0);
+
+        if (myCurrentMap === 'planet') {
+            // Draw planet map
+            if (planetBgImage.complete && planetBgImage.naturalWidth > 0) {
+                ctx.drawImage(planetBgImage, s.x, s.y, PLANET_W, PLANET_H);
+            } else {
+                // Fallback: draw a colored background for the planet
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(s.x, s.y, PLANET_W, PLANET_H);
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.font = '24px Orbitron';
+                ctx.textAlign = 'center';
+                ctx.fillText('PLANET SURFACE', s.x + PLANET_W / 2, s.y + PLANET_H / 2);
+            }
+        } else {
+            // Draw spaceship map
+            if (mapBgImage.complete && mapBgImage.naturalWidth > 0) {
+                ctx.drawImage(mapBgImage, s.x, s.y, WORLD_W, WORLD_H);
+            }
+        }
+
+        // Draw transition zone indicator (glowing portal effect)
+        if (myCurrentMap === 'ship') {
+            // Ship exit zone indicator at engine room bottom
+            const exitX = 400 * MAP_SCALE;
+            const exitY = 920 * MAP_SCALE;
+            const exitW = 224 * MAP_SCALE;
+            const exitH = 104 * MAP_SCALE;
+            const es = worldToScreen(exitX, exitY);
+            const time = performance.now() / 1000;
+            const pulse = Math.sin(time * 3) * 0.3 + 0.5;
+
+            ctx.save();
+            ctx.fillStyle = `rgba(244, 162, 97, ${pulse * 0.3})`;
+            ctx.fillRect(es.x, es.y, exitW, exitH);
+            ctx.strokeStyle = `rgba(244, 162, 97, ${pulse * 0.8})`;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(es.x, es.y, exitW, exitH);
+            ctx.fillStyle = `rgba(244, 162, 97, ${pulse})`;
+            ctx.font = '12px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText('▼ PRESS E TWICE TO EXIT ▼', es.x + exitW / 2, es.y + exitH / 2 + 4);
+            ctx.restore();
+        } else if (myCurrentMap === 'planet') {
+            // Planet exit zone indicator at top edge
+            const exitX = 650 * MAP_SCALE;
+            const exitY = 850 * MAP_SCALE;
+            const exitW = 236 * MAP_SCALE;
+            const exitH = 100 * MAP_SCALE;
+            const es = worldToScreen(exitX, exitY);
+            const time = performance.now() / 1000;
+            const pulse = Math.sin(time * 3) * 0.3 + 0.5;
+
+            ctx.save();
+            ctx.fillStyle = `rgba(76, 201, 240, ${pulse * 0.3})`;
+            ctx.fillRect(es.x, es.y, exitW, exitH);
+            ctx.strokeStyle = `rgba(76, 201, 240, ${pulse * 0.8})`;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(es.x, es.y, exitW, exitH);
+            ctx.fillStyle = `rgba(76, 201, 240, ${pulse})`;
+            ctx.font = '12px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText('▲ PRESS E TWICE TO RETURN ▲', es.x + exitW / 2, es.y + exitH / 2 + 4);
+            ctx.restore();
+        }
+
+        // Debug overlay (toggled with F3 key)
+        if (debugMode) {
+            ctx.save();
+            const activeZones = myCurrentMap === 'planet' ? [
+                { id: 'planet_main', x: 0, y: 0, w: 1536 * MAP_SCALE, h: 1024 * MAP_SCALE }
+            ] : MAP_ZONES;
+            const activeObs = myCurrentMap === 'planet' ? PLANET_OBSTACLES : OBSTACLES;
+
+            // Draw walkable zones (green outlines)
+            for (const zone of activeZones) {
+                const zs = worldToScreen(zone.x, zone.y);
+                ctx.fillStyle = 'rgba(0,255,0,0.08)';
+                ctx.fillRect(zs.x, zs.y, zone.w, zone.h);
+                ctx.strokeStyle = 'rgba(0,255,0,0.6)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(zs.x, zs.y, zone.w, zone.h);
+                if (zone.id || zone.label) {
+                    ctx.fillStyle = 'rgba(0,255,0,0.7)';
+                    ctx.font = '9px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(zone.id || zone.label, zs.x + 3, zs.y + 11);
+                }
+            }
+            // Draw obstacles (red outlines)
+            for (const obs of activeObs) {
+                if (obs.type === 'rect') {
+                    const os = worldToScreen(obs.x, obs.y);
+                    ctx.fillStyle = 'rgba(255,0,0,0.1)';
+                    ctx.fillRect(os.x, os.y, obs.w, obs.h);
+                    ctx.strokeStyle = 'rgba(255,60,60,0.8)';
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeRect(os.x, os.y, obs.w, obs.h);
+                } else if (obs.type === 'circle') {
+                    const os = worldToScreen(obs.x, obs.y);
+                    ctx.fillStyle = 'rgba(255,0,0,0.1)';
+                    ctx.beginPath();
+                    ctx.arc(os.x, os.y, obs.r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(255,60,60,0.8)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+            }
+            // Debug label
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(`DEBUG MODE (F3) — Map: ${myCurrentMap.toUpperCase()}`, 10, canvas.height - 10);
+            ctx.restore();
+        }
+    }
+    // ── MAP INTEGRATION END ──
+
+    function drawObjective() {
+        if (!gameState.objective) return;
+        const obj = gameState.objective;
+        let targetX = obj.x, targetY = obj.y;
+        let isDirect = obj.map === myCurrentMap;
+
+        // Redirect to portals if the objective is on another map
+        if (!isDirect) {
+            if (myCurrentMap === 'ship' && obj.map === 'planet') {
+                targetX = 400 * MAP_SCALE + 112 * MAP_SCALE;
+                targetY = 920 * MAP_SCALE + 50 * MAP_SCALE;
+            } else if (myCurrentMap === 'planet' && obj.map === 'ship') {
+                targetX = 650 * MAP_SCALE + 118 * MAP_SCALE;
+                targetY = 850 * MAP_SCALE + 50 * MAP_SCALE;
+            }
+        }
+
+        const s = worldToScreen(targetX, targetY);
+        const time = performance.now() / 1000;
+
+        // Draw the terminal/task node marker only if we are on the same map
+        if (isDirect) {
+            // Pulsing ring
+            const pulse = Math.sin(time * 3) * 0.3 + 0.7;
+            ctx.strokeStyle = `rgba(255,209,102,${pulse * 0.6})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 35 + Math.sin(time * 2) * 5, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Inner marker
+            ctx.fillStyle = `rgba(255,209,102,${pulse * 0.15})`;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 30, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Icon
+            ctx.fillStyle = '#ffd166';
+            ctx.font = '18px Rajdhani';
+            ctx.textAlign = 'center';
+            ctx.fillText('⚡', s.x, s.y + 6);
+            ctx.font = '12px Orbitron';
+            ctx.fillText('TASK', s.x, s.y - 40);
+
+            // Progress bar
+            if (obj.progress > 0) {
+                const barW = 60;
+                const barH = 6;
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                ctx.fillRect(s.x - barW / 2, s.y + 40, barW, barH);
+                ctx.fillStyle = '#ffd166';
+                ctx.fillRect(s.x - barW / 2, s.y + 40, barW * obj.progress, barH);
+                ctx.strokeStyle = 'rgba(255,209,102,0.4)';
+                ctx.strokeRect(s.x - barW / 2, s.y + 40, barW, barH);
+
+                ctx.fillStyle = 'rgba(255,209,102,0.8)';
+                ctx.font = '10px Orbitron';
+                ctx.fillText(Math.floor(obj.progress * 100) + '%', s.x, s.y + 58);
+            }
+        }
+
+        // Direction arrow pointing to the task or portal
+        const me = gameState.players.find(p => p.id === myId);
+        if (me) {
+            const distToTarget = Math.hypot(targetX - me.x, targetY - me.y);
+            // Render arrow if objective is off-screen or far away
+            if (s.x < 50 || s.x > canvas.width - 50 || s.y < 50 || s.y > canvas.height - 50 || distToTarget > 300) {
+                const angle = Math.atan2(targetY - me.y, targetX - me.x);
+                // Orbit the player
+                const radius = 90;
+                const arrowX = canvas.width / 2 + Math.cos(angle) * radius;
+                const arrowY = canvas.height / 2 + Math.sin(angle) * radius;
+
+                ctx.save();
+                ctx.translate(arrowX, arrowY);
+                ctx.rotate(angle);
+
+                // Pulsing arrow color
+                const flash = Math.sin(time * 6) * 0.2 + 0.8;
+                ctx.fillStyle = isDirect ? `rgba(255,209,102,${flash})` : `rgba(0,255,255,${flash})`;
+
+                ctx.beginPath();
+                ctx.moveTo(15, 0);
+                ctx.lineTo(-12, -10);
+                ctx.lineTo(-8, 0);
+                ctx.lineTo(-12, 10);
+                ctx.closePath();
+                ctx.fill();
+
+                // Add a drop shadow glow
+                ctx.shadowColor = isDirect ? '#ffd166' : '#00ffff';
+                ctx.shadowBlur = 10;
+                ctx.fill();
+
+                ctx.restore();
+            }
+        }
+    }
+
+    function drawPlayers(dt) {
+        if (!gameState) return;
+
+        for (const p of gameState.players) {
+            const pMap = p.currentMap || 'ship';
+            if (pMap !== myCurrentMap) continue;
+
+            const s = worldToScreen(p.x, p.y);
+            const color = ROLE_COLORS[p.role] || '#fff';
+            const isMe = p.id === myId;
+
+            if (!p.alive) {
+                // Play death animation for any role
+                const anim = getAnimState(p.id);
+                const dir = anim.lastDir || 'south';
+                const role = p.role || 'vanguard';
+                const frames = roleSprites[role]?.death?.[dir];
+                if (frames && frames.length > 0) {
+                    if (!anim.deathDone) {
+                        anim.deathTimer += 0.016; // ~60fps
+                        if (anim.deathTimer >= 0.1) {
+                            anim.deathTimer = 0;
+                            if (anim.deathFrame < frames.length - 1) anim.deathFrame++;
+                            else anim.deathDone = true;
+                        }
+                    }
+                    const frame = frames[anim.deathFrame];
+                    if (frame && frame.complete && frame.naturalWidth > 0) {
+                        ctx.globalAlpha = 0.7;
+                        const sw = frame.naturalWidth * SPRITE_SCALE;
+                        const sh = frame.naturalHeight * SPRITE_SCALE;
+                        ctx.imageSmoothingEnabled = false;
+                        ctx.drawImage(frame, s.x - sw / 2, s.y - sh / 2, sw, sh);
+                        ctx.imageSmoothingEnabled = true;
+                        ctx.globalAlpha = 1;
+                    }
+                } else {
+                    // Fallback ghost circle
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillStyle = '#666';
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, 14, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+
+                // Respawn timer
+                if (p.respawnTimer > 0) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '12px Orbitron';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(p.respawnTimer.toFixed(1) + 's', s.x, s.y + 4);
+                }
+                continue;
+            }
+
+            // Ability active glow
+            if (p.abilityActive) {
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 20;
+            }
+
+            // Draw character sprite for all roles
+            drawVanguardSprite(p, s, isMe, dt);
+
+            ctx.shadowBlur = 0;
+
+            // Direction indicator
+            const angle = Math.atan2(
+                (mouseY + camY - canvas.height / 2) - p.y,
+                (mouseX + camX - canvas.width / 2) - p.x
+            );
+            if (isMe) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(s.x + Math.cos(angle) * 20, s.y + Math.sin(angle) * 20);
+                ctx.lineTo(s.x + Math.cos(angle) * 30, s.y + Math.sin(angle) * 30);
+                ctx.stroke();
+            }
+
+            // Name tag
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.font = '10px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText(p.name, s.x, s.y - 30);
+
+            // HP bar
+            const hpPct = p.hp / p.maxHp;
+            const barW = 36;
+            const barH = 4;
+            const barX = s.x - barW / 2;
+            const barY = s.y - 24;
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(barX, barY, barW, barH);
+            ctx.fillStyle = hpPct > 0.6 ? '#06d6a0' : hpPct > 0.3 ? '#ffd166' : '#e63946';
+            ctx.fillRect(barX, barY, barW * hpPct, barH);
+
+            // Heal beam (medic)
+            if (p.role === 'medic' && !mouseDown) {
+                // Find nearest wounded ally
+                let nearestAlly = null;
+                let nearestDist = 200;
+                for (const op of gameState.players) {
+                    if (op.id === p.id || !op.alive || op.hp >= op.maxHp) continue;
+                    const d = Math.sqrt((p.x - op.x) ** 2 + (p.y - op.y) ** 2);
+                    if (d < nearestDist) { nearestDist = d; nearestAlly = op; }
+                }
+                if (nearestAlly && isMe) {
+                    const as = worldToScreen(nearestAlly.x, nearestAlly.y);
+                    ctx.strokeStyle = `rgba(239, 71, 111, ${0.3 + Math.sin(performance.now() / 200) * 0.2})`;
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(s.x, s.y);
+                    ctx.lineTo(as.x, as.y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+            }
+        }
+    }
+
+    function drawVanguardSprite(p, s, isMe, dt) {
+        const anim = getAnimState(p.id);
+
+        // Determine facing direction from mouse (if local) or movement
+        let facingAngle;
+        if (isMe) {
+            if (mouseMoved) {
+                facingAngle = Math.atan2(
+                    (mouseY + camY - canvas.height / 2) - p.y,
+                    (mouseX + camX - canvas.width / 2) - p.x
+                );
+            } else {
+                const dxDelta = p.x - (anim.prevX || p.x);
+                const dyDelta = p.y - (anim.prevY || p.y);
+                if (Math.abs(dxDelta) > 0.1 || Math.abs(dyDelta) > 0.1) {
+                    facingAngle = Math.atan2(dyDelta, dxDelta);
+                } else {
+                    facingAngle = anim.lastAngle || 0; // Default right if completely idle initially
+                }
+            }
+        } else {
+            // Remote player: detect from position changes with grace period
+            const dx = p.x - (anim.prevX || p.x);
+            const dy = p.y - (anim.prevY || p.y);
+            if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                facingAngle = Math.atan2(dy, dx);
+            } else {
+                // If standing still, we don't have mouse pos for remote players
+                // But we can keep their last known angle
+                facingAngle = anim.lastAngle || 0;
+            }
+        }
+        anim.lastAngle = facingAngle;
+        const dir = angleToDir(facingAngle);
+        anim.lastDir = dir;
+
+        // Check if moving — use input keys for local, position delta for remote
+        const dxDelta = p.x - (anim.prevX || p.x);
+        const dyDelta = p.y - (anim.prevY || p.y);
+        let isMoving;
+        if (isMe) {
+            // Local player: check if any movement key is held
+            isMoving = keys.w || keys.a || keys.s || keys.d;
+        } else {
+            if (Math.abs(dxDelta) > 0.1 || Math.abs(dyDelta) > 0.1) {
+                anim.moveGrace = 0.15; // keep walking for 150ms after last move
+            }
+            if (anim.moveGrace > 0) {
+                anim.moveGrace -= dt;
+                isMoving = true;
+            } else {
+                isMoving = false;
+            }
+        }
+        anim.prevX = p.x;
+        anim.prevY = p.y;
+
+        // Reset death anim if alive
+        anim.deathFrame = 0;
+        anim.deathTimer = 0;
+        anim.deathDone = false;
+
+        const role = p.role || 'vanguard';
+        const sprites = roleSprites[role] || roleSprites.vanguard;
+
+        let sprite;
+        if (isMoving && sprites.walk[dir]) {
+            // Animate walk at 10fps
+            anim.walkTimer += dt;
+            if (anim.walkTimer >= 0.1) {
+                anim.walkTimer = 0;
+                anim.walkFrame = (anim.walkFrame + 1) % 6;
+            }
+            sprite = sprites.walk[dir][anim.walkFrame];
+        } else {
+            // Idle
+            anim.walkFrame = 0;
+            anim.walkTimer = 0;
+            sprite = sprites.idle[dir];
+        }
+
+        // Draw the character sprite
+        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            const sw = sprite.naturalWidth * SPRITE_SCALE;
+            const sh = sprite.naturalHeight * SPRITE_SCALE;
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(sprite, s.x - sw / 2, s.y - sh / 2, sw, sh);
+            ctx.imageSmoothingEnabled = true;
+        } else {
+            // Fallback hexagon while loading
+            ctx.fillStyle = '#4cc9f0';
+            ctx.strokeStyle = isMe ? '#fff' : 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = isMe ? 2.5 : 1;
+            drawHexagon(s.x, s.y, 18);
+        }
+
+        // Draw weapon sprite based on role
+        let weaponSprite = null;
+        let weaponScale = 2;
+        let weaponOffsetDist = 20;
+        let showSwing = false;
+        if (p.role === 'vanguard') {
+            weaponSprite = roleSprites.vanguard.sword[dir];
+            weaponScale = 1.2;
+            showSwing = true;
+        } else if (p.role === 'engineer') {
+            // Track spear throw: hide held spear for 1.5s after attacking
+            if (mouseDown && isMe) {
+                anim.spearThrown = 1.5; // seconds until spear reappears
+            }
+            if (anim.spearThrown > 0) {
+                anim.spearThrown -= dt;
+                weaponSprite = null; // hide held spear while thrown
+            } else {
+                weaponSprite = spearImg;
+                weaponScale = 0.1;
+                weaponOffsetDist = 20;
+                showSwing = true;
+            }
+        } else if (p.role === 'scout') {
+            weaponSprite = gunImg;
+            weaponScale = 0.06;
+            weaponOffsetDist = 10;
+        } else if (p.role === 'medic') {
+            weaponSprite = medboxImg;
+            weaponScale = 0.1;
+            weaponOffsetDist = 16;
+        }
+
+        if (weaponSprite && weaponSprite.complete && weaponSprite.naturalWidth > 0) {
+            // Determine facing side
+            const facingRight = Math.cos(facingAngle) >= 0;
+
+            // All weapons stay at right hand: horizontal offset only
+            const wOffsetX = facingRight ? weaponOffsetDist : -weaponOffsetDist;
+            const wOffsetY = 0;
+
+            const wW = weaponSprite.naturalWidth * weaponScale;
+            const wH = weaponSprite.naturalHeight * weaponScale;
+
+            if (p.role === 'scout') {
+                // Gun rotates around its grip (bottom) following the cursor
+                ctx.save();
+                ctx.translate(s.x + wOffsetX, s.y + wOffsetY);
+                if (!facingRight) ctx.scale(-1, 1);
+                // Rotate by the angle relative to horizontal
+                const localAngle = facingRight ? facingAngle : (Math.PI - facingAngle);
+                ctx.rotate(localAngle);
+                ctx.imageSmoothingEnabled = false;
+                // Draw with pivot at bottom-center (grip): offset so bottom is at origin
+                ctx.drawImage(weaponSprite, 0, -wH / 2, wW, wH);
+                ctx.imageSmoothingEnabled = true;
+                ctx.restore();
+            } else {
+                // Tilt angle
+                const tiltAngle = facingRight ? (30 * Math.PI / 180) : (-30 * Math.PI / 180);
+
+                // Swing animation on click (melee weapons only)
+                if (!anim.swingTimer) anim.swingTimer = 0;
+                if (mouseDown && isMe && showSwing) {
+                    anim.swingTimer = Math.min(anim.swingTimer + dt * 8, 1);
+                } else {
+                    anim.swingTimer = Math.max(anim.swingTimer - dt * 5, 0);
+                }
+                const swingExtra = showSwing ? anim.swingTimer * (45 * Math.PI / 180) : 0;
+
+                ctx.save();
+                ctx.translate(s.x + wOffsetX, s.y + wOffsetY);
+                if (!facingRight) ctx.scale(-1, 1);
+                ctx.rotate(Math.abs(tiltAngle) + swingExtra);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(weaponSprite, -wW / 2, -wH / 2, wW, wH);
+                ctx.imageSmoothingEnabled = true;
+                ctx.restore();
+            }
+
+            // On click, show damage radius indicator for melee
+            if (mouseDown && isMe && showSwing) {
+                const hitX = s.x + Math.cos(facingAngle) * 35;
+                const hitY = s.y + Math.sin(facingAngle) * 35;
+                ctx.strokeStyle = `rgba(76, 201, 240, ${0.3 + anim.swingTimer * 0.3})`;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath();
+                ctx.arc(hitX, hitY, 40, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Slash arc effect
+                ctx.strokeStyle = `rgba(76, 201, 240, ${0.5 * anim.swingTimer})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, 38, facingAngle - 0.5, facingAngle + 0.5);
+                ctx.stroke();
+            }
+        }
+    }
+
+    function drawHexagon(x, y, r) {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i - Math.PI / 6;
+            const px = x + r * Math.cos(angle);
+            const py = y + r * Math.sin(angle);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    function drawSquare(x, y, r) {
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+        ctx.strokeRect(x - r, y - r, r * 2, r * 2);
+        // Gear icon
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚙', x, y + 5);
+    }
+
+    function drawDiamond(x, y, r) {
+        ctx.beginPath();
+        ctx.moveTo(x, y - r);
+        ctx.lineTo(x + r * 0.7, y);
+        ctx.lineTo(x, y + r);
+        ctx.lineTo(x - r * 0.7, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    function drawCross(x, y, r) {
+        const w = r * 0.4;
+        ctx.beginPath();
+        ctx.moveTo(x - w, y - r);
+        ctx.lineTo(x + w, y - r);
+        ctx.lineTo(x + w, y - w);
+        ctx.lineTo(x + r, y - w);
+        ctx.lineTo(x + r, y + w);
+        ctx.lineTo(x + w, y + w);
+        ctx.lineTo(x + w, y + r);
+        ctx.lineTo(x - w, y + r);
+        ctx.lineTo(x - w, y + w);
+        ctx.lineTo(x - r, y + w);
+        ctx.lineTo(x - r, y - w);
+        ctx.lineTo(x - w, y - w);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    function drawEnemies() {
+        if (!gameState) return;
+
+        // Clean up anim state for enemies no longer present (Bug #10 memory leak)
+        const activeIds = new Set(gameState.enemies.map(e => e.id));
+        for (const id in enemyAnimState) {
+            if (!activeIds.has(id)) delete enemyAnimState[id];
+        }
+
+        for (const e of gameState.enemies) {
+            const eMap = e.map || 'ship';
+            if (eMap !== myCurrentMap) continue;
+
+            const s = worldToScreen(e.x, e.y);
+            const isElite = e.type === 'elite';
+            const r = isElite ? 22 : 16;
+
+            // Pick orc spritesheet based on server orcType
+            const orcKey = e.orcType || 'orc1';
+            const sheets = orcSprites[orcKey] || orcSprites.orc1;
+
+            // Get animation state for this enemy
+            const anim = getEnemyAnim(e.id);
+
+            // Determine movement
+            const dx = e.x - (anim.prevX || e.x);
+            const dy = e.y - (anim.prevY || e.y);
+            const isMoving = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+            anim.prevX = e.x;
+            anim.prevY = e.y;
+
+            // Pick direction row from spritesheet
+            const dirRow = getOrcDirRow(dx, dy);
+
+            // Advance animation timer
+            anim.timer += 0.016; // ~60fps
+            if (anim.timer >= 0.1) {
+                anim.timer = 0;
+                anim.frame++;
+            }
+
+            // Select spritesheet and frame
+            const action = isMoving ? 'walk' : 'idle';
+            const sheet = sheets[action];
+            const maxFrames = ORC_FRAME_COUNTS[action];
+            const frameIdx = anim.frame % maxFrames;
+
+            if (sheet && sheet.complete && sheet.naturalWidth > 0) {
+                const sx = frameIdx * ORC_FRAME;
+                const sy = dirRow * ORC_FRAME;
+                const orcScale = isElite ? 2.2 : 1.8;
+                const dW = ORC_FRAME * orcScale;
+                const dH = ORC_FRAME * orcScale;
+                ctx.save();
+                ctx.translate(s.x, s.y);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(sheet, sx, sy, ORC_FRAME, ORC_FRAME, -dW / 2, -dH / 2, dW, dH);
+                ctx.imageSmoothingEnabled = true;
+                if (isElite) {
+                    ctx.shadowColor = '#ff6b6b';
+                    ctx.shadowBlur = 15;
+                    ctx.strokeStyle = 'rgba(255,100,100,0.4)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(-dW / 2, -dH / 2, dW, dH);
+                    ctx.shadowBlur = 0;
+                }
+                ctx.restore();
+            } else {
+                // Fallback circle
+                ctx.fillStyle = isElite ? '#ff6b6b' : '#e63946';
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // HP bar
+            const hpPct = e.hp / e.maxHp;
+            if (hpPct < 1) {
+                const barW = isElite ? 32 : 24;
+                const barH = 3;
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(s.x - barW / 2, s.y - r - 8, barW, barH);
+                ctx.fillStyle = '#e63946';
+                ctx.fillRect(s.x - barW / 2, s.y - r - 8, barW * hpPct, barH);
+            }
+        }
+    }
+
+    // Boss animation state
+    const bossAnim = { frame: 0, timer: 0, prevX: 0, prevY: 0 };
+
+    function drawBoss() {
+        const bossMap = gameState.boss.map || 'planet';
+        if (myCurrentMap !== bossMap) return;
+        const boss = gameState.boss;
+        const s = worldToScreen(boss.x, boss.y);
+        const time = performance.now() / 1000;
+        const sheets = orcSprites.orc3;
+
+        // Determine if moving
+        const dx = boss.x - (bossAnim.prevX || boss.x);
+        const dy = boss.y - (bossAnim.prevY || boss.y);
+        const isMoving = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+        bossAnim.prevX = boss.x;
+        bossAnim.prevY = boss.y;
+
+        // Pick direction row
+        const dirRow = getOrcDirRow(dx, dy);
+
+        // Advance animation
+        bossAnim.timer += 0.016;
+        if (bossAnim.timer >= 0.1) {
+            bossAnim.timer = 0;
+            bossAnim.frame++;
+        }
+
+        const action = isMoving ? 'walk' : 'idle';
+        const sheet = sheets[action];
+        const maxFrames = ORC_FRAME_COUNTS[action];
+        const frameIdx = bossAnim.frame % maxFrames;
+
+        // Aura glow
+        const auraSize = 70 + Math.sin(time * 2) * 10;
+        ctx.fillStyle = boss.aggroPhase
+            ? `rgba(230, 57, 70, ${0.1 + Math.sin(time * 4) * 0.05})`
+            : `rgba(123, 44, 191, ${0.08 + Math.sin(time * 2) * 0.04})`;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, auraSize, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw orc3 sprite at 2x size
+        if (sheet && sheet.complete && sheet.naturalWidth > 0) {
+            const sx = frameIdx * ORC_FRAME;
+            const sy = dirRow * ORC_FRAME;
+            const bossScale = 4.0; // boss orc (64*4 = 256px)
+            const dW = ORC_FRAME * bossScale;
+            const dH = ORC_FRAME * bossScale;
+            ctx.save();
+            ctx.translate(s.x, s.y);
+            ctx.imageSmoothingEnabled = false;
+
+            // Tint effect for aggro
+            if (boss.aggroPhase) {
+                ctx.shadowColor = '#e63946';
+                ctx.shadowBlur = 20;
+            } else {
+                ctx.shadowColor = '#7b2cbf';
+                ctx.shadowBlur = 12;
+            }
+            ctx.drawImage(sheet, sx, sy, ORC_FRAME, ORC_FRAME, -dW / 2, -dH / 2, dW, dH);
+            ctx.shadowBlur = 0;
+            ctx.imageSmoothingEnabled = true;
+            ctx.restore();
+        } else {
+            // Fallback hexagon
+            ctx.save();
+            ctx.translate(s.x, s.y);
+            ctx.rotate(time * 0.5);
+            ctx.fillStyle = boss.aggroPhase ? '#9b2c3f' : '#7b2cbf';
+            ctx.strokeStyle = boss.aggroPhase ? '#e63946' : '#a855f7';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i;
+                const px = 45 * Math.cos(angle); const py = 45 * Math.sin(angle);
+                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+            ctx.restore();
+        }
+
+        // Weakpoint indicator
+        if (gameState.weakpointActive) {
+            ctx.strokeStyle = `rgba(6, 214, 160, ${0.5 + Math.sin(time * 6) * 0.3})`;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 70, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Boss HP bar (top of screen)
+        const barW = Math.min(400, canvas.width * 0.5);
+        const barH = 16;
+        const barX = canvas.width / 2 - barW / 2;
+        const barY = 20;
+        const hpPct = boss.hp / boss.maxHp;
+
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+        ctx.fillStyle = boss.aggroPhase ? '#e63946' : '#7b2cbf';
+        ctx.fillRect(barX, barY, barW * hpPct, barH);
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 4; i++) {
+            const mx = barX + barW * (i / 4);
+            ctx.beginPath(); ctx.moveTo(mx, barY); ctx.lineTo(mx, barY + barH); ctx.stroke();
+        }
+        ctx.strokeRect(barX, barY, barW, barH);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px Orbitron';
+        ctx.textAlign = 'center';
+        ctx.fillText(`ORC WARLORD — ${Math.round(boss.hp)} / ${boss.maxHp}`, canvas.width / 2, barY + barH + 16);
+    }
+
+    function drawProjectiles() {
+        if (!gameState) return;
+        for (const p of gameState.projectiles) {
+            const s = worldToScreen(p.x, p.y);
+            const angle = Math.atan2(p.vy || 0, p.vx || 0);
+
+            if (p.isPlayerProj && p.ownerRole === 'engineer' && spearImg && spearImg.complete && spearImg.naturalWidth > 0) {
+                // Engineer: thrown spear projectile
+                const spScale = 0.1;
+                const spW = spearImg.naturalWidth * spScale;
+                const spH = spearImg.naturalHeight * spScale;
+                ctx.save();
+                ctx.translate(s.x, s.y);
+                ctx.rotate(angle);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(spearImg, -spW / 2, -spH / 2, spW, spH);
+                ctx.imageSmoothingEnabled = true;
+                ctx.restore();
+            } else if (p.isPlayerProj && bulletImg && bulletImg.complete && bulletImg.naturalWidth > 0) {
+                // Other player projectiles: bullet sprite
+                const bScale = 0.06;
+                const bW = bulletImg.naturalWidth * bScale;
+                const bH = bulletImg.naturalHeight * bScale;
+                ctx.save();
+                ctx.translate(s.x, s.y);
+                ctx.rotate(angle);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(bulletImg, -bW / 2, -bH / 2, bW, bH);
+                ctx.imageSmoothingEnabled = true;
+                ctx.restore();
+            } else {
+                // Enemy projectiles — red glow circle
+                ctx.fillStyle = '#ff4444';
+                ctx.shadowColor = '#ff4444';
+                ctx.shadowBlur = 8;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+    }
+
+    function drawTurrets() {
+        if (!gameState || !gameState.turrets) return;
+        for (const t of gameState.turrets) {
+            const s = worldToScreen(t.x, t.y);
+            ctx.fillStyle = '#f4a261';
+            ctx.strokeStyle = '#ffd166';
+            ctx.lineWidth = 2;
+            // Base
+            ctx.fillRect(s.x - 10, s.y - 10, 20, 20);
+            ctx.strokeRect(s.x - 10, s.y - 10, 20, 20);
+            // Barrel
+            ctx.fillStyle = '#c47a30';
+            ctx.fillRect(s.x - 2, s.y - 16, 4, 8);
+            // Range indicator
+            ctx.strokeStyle = 'rgba(244,162,97,0.1)';
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 200, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+
+    function drawParticles() {
+        for (const p of particles) {
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
+            const s = worldToScreen(p.x, p.y);
+            ctx.fillRect(s.x - p.size / 2, s.y - p.size / 2, p.size, p.size);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function drawFloatTexts() {
+        for (const t of floatTexts) {
+            ctx.globalAlpha = t.life;
+            ctx.fillStyle = t.color;
+            ctx.font = 'bold 14px Rajdhani';
+            ctx.textAlign = 'center';
+            const s = worldToScreen(t.x, t.y);
+            ctx.fillText(t.text, s.x, s.y);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // ── MAP INTEGRATION: dynamic minimap size based on current map ──
+    function drawMinimap() {
+        const activeW = myCurrentMap === 'planet' ? PLANET_W : WORLD_W;
+        const activeH = myCurrentMap === 'planet' ? PLANET_H : WORLD_H;
+
+        const mmW = 140;
+        const mmH = 140 * (activeH / activeW);
+        const mmX = canvas.width - mmW - 16;
+        const mmY = 16;
+
+        const scaleX = mmW / activeW;
+        const scaleY = mmH / activeH;
+
+        // Background — draw scaled map image or fallback
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(mmX, mmY, mmW, mmH);
+
+        let bgImage = myCurrentMap === 'planet' ? planetBgImage : mapBgImage;
+        if (bgImage && bgImage.complete && bgImage.naturalWidth > 0) {
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(bgImage, mmX, mmY, mmW, mmH);
+            ctx.globalAlpha = 1;
+        }
+        ctx.strokeStyle = 'rgba(76,201,240,0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(mmX, mmY, mmW, mmH);
+
+        const me = gameState.players.find(p => p.id === myId);
+        const isScout = me?.role === 'scout';
+
+        // Enemies (Scout sees all, others see nearby)
+        for (const e of gameState.enemies) {
+            const eMap = e.map || 'ship';
+            if (eMap !== myCurrentMap) continue;
+
+            if (!isScout && me) {
+                const d = Math.sqrt((me.x - e.x) ** 2 + (me.y - e.y) ** 2);
+                if (d > 400) continue;
+            }
+            ctx.fillStyle = e.type === 'elite' ? '#ff6b6b' : '#e63946';
+            ctx.fillRect(mmX + e.x * scaleX - 1, mmY + e.y * scaleY - 1, 2, 2);
+        }
+
+        // Boss
+        if (gameState.boss) {
+            const bMap = gameState.boss.map || 'ship';
+            if (bMap === myCurrentMap) {
+                ctx.fillStyle = '#7b2cbf';
+                ctx.fillRect(mmX + gameState.boss.x * scaleX - 3, mmY + gameState.boss.y * scaleY - 3, 6, 6);
+            }
+        }
+
+        // Objective
+        if (gameState.objective && gameState.objective.map === myCurrentMap) {
+            ctx.fillStyle = '#ffd166';
+            ctx.fillRect(mmX + gameState.objective.x * scaleX - 2, mmY + gameState.objective.y * scaleY - 2, 4, 4);
+        }
+
+        // Players (only show on current map)
+        for (const p of gameState.players) {
+            if (!p.alive) continue;
+            const pMap = p.currentMap || 'ship';
+            if (pMap !== myCurrentMap) continue;
+
+            ctx.fillStyle = ROLE_COLORS[p.role] || '#fff';
+            ctx.fillRect(mmX + p.x * scaleX - 2, mmY + p.y * scaleY - 2, 4, 4);
+        }
+
+        // Camera viewport
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.strokeRect(
+            mmX + (camX - canvas.width / 2) * scaleX,
+            mmY + (camY - canvas.height / 2) * scaleY,
+            canvas.width * scaleX,
+            canvas.height * scaleY
+        );
+
+        // Label
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '8px Orbitron';
+        ctx.textAlign = 'right';
+        ctx.fillText(myCurrentMap === 'planet' ? 'PLANET RADAR' : (isScout ? 'FULL SCAN' : 'LOCAL SCAN'), mmX + mmW - 4, mmY + mmH + 10);
+    }
+
+    function drawScoreboard() {
+        if (!gameState) return;
+        const w = 420;
+        const h = 30 + gameState.players.length * 36;
+        const x = canvas.width / 2 - w / 2;
+        const y = canvas.height / 2 - h / 2;
+
+        ctx.fillStyle = 'rgba(5,5,16,0.92)';
+        ctx.strokeStyle = 'rgba(76,201,240,0.2)';
+        ctx.lineWidth = 1;
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeRect(x, y, w, h);
+
+        ctx.fillStyle = '#4cc9f0';
+        ctx.font = '12px Orbitron';
+        ctx.textAlign = 'center';
+        ctx.fillText('SQUAD STATUS', x + w / 2, y + 20);
+
+        gameState.players.forEach((p, i) => {
+            const py = y + 34 + i * 36;
+            ctx.fillStyle = ROLE_COLORS[p.role] || '#fff';
+            ctx.font = '12px Orbitron';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${p.name} [${p.role?.toUpperCase()}]`, x + 12, py + 12);
+
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.font = '10px Orbitron';
+            ctx.textAlign = 'left';
+            ctx.fillText(
+                `HP: ${Math.round(p.hp)}/${p.maxHp}  ⚔${Math.round(p.score?.damageDealt || 0)}  ♥${Math.round(p.score?.healingDone || 0)}  ☠${p.score?.enemiesKilled || 0}`,
+                x + 12, py + 26
+            );
+
+            // HP bar
+            const barW = 100;
+            const hpPct = p.hp / p.maxHp;
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.fillRect(x + w - barW - 12, py + 4, barW, 8);
+            ctx.fillStyle = hpPct > 0.6 ? '#06d6a0' : hpPct > 0.3 ? '#ffd166' : '#e63946';
+            ctx.fillRect(x + w - barW - 12, py + 4, barW * hpPct, 8);
+        });
+    }
+
+    function updateHUD() {
+        if (!gameState) return;
+        const me = gameState.players.find(p => p.id === myId);
+
+        // Timer
+        const mins = Math.floor(gameState.timer / 60);
+        const secs = Math.floor(gameState.timer % 60);
+        timerDisplay.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        timerDisplay.classList.toggle('critical', gameState.timer < 60);
+
+        // Objective
+        if (gameState.objective) {
+            const progressBar = gameState.objective.progress > 0
+                ? ` [${Math.floor(gameState.objective.progress * 100)}%]`
+                : '';
+            objectiveDisplay.textContent = `⚡ ${gameState.objective.desc}${progressBar} — Press E to interact`;
+        } else if (gameState.phase === 'intro') {
+            objectiveDisplay.textContent = `☢ OXYGEN CRITICAL — Prepare for hostile contact`;
+        } else if (gameState.phase === 'boss') {
+            objectiveDisplay.textContent = `⚠ DEFEAT THE ALIEN GUARDIAN`;
+        } else if (gameState.phase === 'cinematic') {
+            objectiveDisplay.textContent = '';
+        } else {
+            objectiveDisplay.textContent = '';
+        }
+
+        // Player HUD
+        if (me) {
+            const hpPct = Math.max(0, me.hp / me.maxHp);
+            hudHpBar.style.width = (hpPct * 100) + '%';
+            hudHpBar.className = 'hud-hp-bar' + (hpPct < 0.3 ? ' low' : hpPct < 0.6 ? ' mid' : '');
+            hudHpText.textContent = `${Math.round(me.hp)} / ${me.maxHp}`;
+
+            // Ability
+            const cdReady = me.abilityCd <= 0;
+            hudAbility.classList.toggle('ready', cdReady);
+            if (!cdReady) {
+                const cdPct = Math.max(0, 1 - me.abilityCd / 30);
+                hudAbilityCd.style.height = (cdPct * 100) + '%';
+            } else {
+                hudAbilityCd.style.height = '100%';
+            }
+        }
+    }
+
+    // ======================== CINEMATIC ========================
+    // Pre-generate cinematic particles for realism
+    const cineDebris = [];
+    for (let i = 0; i < 30; i++) {
+        cineDebris.push({
+            x: Math.random() * 1400, y: Math.random() * 800,
+            size: 1 + Math.random() * 4, rot: Math.random() * Math.PI * 2,
+            rotSpd: (Math.random() - 0.5) * 3, speed: 60 + Math.random() * 120,
+            color: ['#8899aa', '#667788', '#aabbcc', '#556677'][Math.floor(Math.random() * 4)]
+        });
+    }
+    const cineExhaust = [];
+
+    function renderCinematic(dt) {
+        cinematicTimer += dt;
+        const W = canvas.width, H = canvas.height;
+
+        // Deep space background with nebula
+        const bgGrad = ctx.createRadialGradient(W * 0.3, H * 0.4, 0, W * 0.5, H * 0.5, W * 0.9);
+        bgGrad.addColorStop(0, '#0a0e1a');
+        bgGrad.addColorStop(0.4, '#060a14');
+        bgGrad.addColorStop(1, '#020206');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Nebula glow patches
+        const nebulaAlpha = 0.04 + Math.sin(cinematicTimer * 0.3) * 0.015;
+        ctx.save();
+        ctx.globalAlpha = nebulaAlpha;
+        const nebGrad1 = ctx.createRadialGradient(W * 0.2, H * 0.3, 10, W * 0.2, H * 0.3, 200);
+        nebGrad1.addColorStop(0, '#4a2a8a');
+        nebGrad1.addColorStop(1, 'transparent');
+        ctx.fillStyle = nebGrad1;
+        ctx.fillRect(0, 0, W, H);
+        const nebGrad2 = ctx.createRadialGradient(W * 0.75, H * 0.6, 10, W * 0.75, H * 0.6, 180);
+        nebGrad2.addColorStop(0, '#1a4a6a');
+        nebGrad2.addColorStop(1, 'transparent');
+        ctx.fillStyle = nebGrad2;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+
+        // Stars with depth layers
+        for (const star of stars) {
+            const progress = Math.min(cinematicTimer / 3, 1);
+            star.x -= star.speed * dt * (1 + progress * 3);
+            if (star.x < -10) { star.x = W + Math.random() * 100; star.y = Math.random() * H; }
+            const twinkle = 0.4 + Math.sin(cinematicTimer * 2 + star.y) * 0.3;
+            const streak = cinematicTimer < 3 ? 1 + progress * 6 : (cinematicTimer < 5 ? 4 : 1);
+            ctx.fillStyle = `rgba(200,220,255,${twinkle * star.size * 0.3})`;
+            ctx.fillRect(star.x, star.y, star.size * streak, star.size * 0.8);
+        }
+
+        if (cinematicTimer < 3) {
+            // ── Phase 1: Ship departing Earth ──
+            const progress = cinematicTimer / 3;
+
+            // Earth with realistic atmosphere layers
+            const earthX = W * 0.12 - progress * 50;
+            const earthY = H * 0.48;
+            const earthR = 55 - progress * 15;
+
+            // Atmosphere outer glow
+            const atmoGlow = ctx.createRadialGradient(earthX, earthY, earthR - 5, earthX, earthY, earthR + 25);
+            atmoGlow.addColorStop(0, 'rgba(100, 180, 255, 0.12)');
+            atmoGlow.addColorStop(1, 'transparent');
+            ctx.fillStyle = atmoGlow;
+            ctx.beginPath(); ctx.arc(earthX, earthY, earthR + 25, 0, Math.PI * 2); ctx.fill();
+
+            // Earth body
+            const earthGrad = ctx.createRadialGradient(earthX - 10, earthY - 10, 5, earthX, earthY, earthR);
+            earthGrad.addColorStop(0, '#2a7fff');
+            earthGrad.addColorStop(0.5, '#1a5fd0');
+            earthGrad.addColorStop(1, '#0a2a60');
+            ctx.fillStyle = earthGrad;
+            ctx.beginPath(); ctx.arc(earthX, earthY, earthR, 0, Math.PI * 2); ctx.fill();
+
+            // Land masses
+            ctx.fillStyle = 'rgba(34, 139, 34, 0.4)';
+            ctx.beginPath(); ctx.arc(earthX - 8, earthY - 10, earthR * 0.35, 0.2, 1.8); ctx.fill();
+            ctx.beginPath(); ctx.arc(earthX + 12, earthY + 5, earthR * 0.25, 0.5, 2.5); ctx.fill();
+
+            // Atmosphere rim
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.25)';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(earthX, earthY, earthR + 3, 0, Math.PI * 2); ctx.stroke();
+
+            // Ship with detailed body
+            const shipX = W * 0.25 + progress * W * 0.35;
+            const shipY = H * 0.48 - progress * 20;
+            drawDetailedShip(shipX, shipY, 2.0, progress, dt);
+
+            // Departure text with fade
+            ctx.globalAlpha = Math.min(1, cinematicTimer * 0.8) * (1 - Math.max(0, progress - 0.8) * 5);
+            ctx.fillStyle = '#4cc9f0';
+            ctx.font = 'bold 15px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText('DEPARTING EARTH — MISSION PROMPT&PLAY', W / 2, H * 0.88);
+            ctx.font = '11px Rajdhani';
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.fillText('DESTINATION: UNCHARTED EXOPLANET KX-7741', W / 2, H * 0.92);
+            ctx.globalAlpha = 1;
+
+        } else if (cinematicTimer < 5) {
+            // ── Phase 2: Approaching alien planet + crash ──
+            const progress = (cinematicTimer - 3) / 2;
+
+            // Alien planet with atmosphere and glow
+            const planetX = W * 0.72;
+            const planetY = H * 0.48;
+            const planetR = 50 + progress * 220;
+
+            // Outer glow
+            const outerGlow = ctx.createRadialGradient(planetX, planetY, planetR * 0.8, planetX, planetY, planetR * 1.3);
+            outerGlow.addColorStop(0, 'rgba(100, 50, 160, 0.1)');
+            outerGlow.addColorStop(1, 'transparent');
+            ctx.fillStyle = outerGlow;
+            ctx.beginPath(); ctx.arc(planetX, planetY, planetR * 1.3, 0, Math.PI * 2); ctx.fill();
+
+            // Planet body
+            const planetGrad = ctx.createRadialGradient(planetX - planetR * 0.3, planetY - planetR * 0.3, planetR * 0.1, planetX, planetY, planetR);
+            planetGrad.addColorStop(0, '#4a2a6a');
+            planetGrad.addColorStop(0.6, '#2a1544');
+            planetGrad.addColorStop(1, '#100a20');
+            ctx.fillStyle = planetGrad;
+            ctx.beginPath(); ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2); ctx.fill();
+
+            // Surface craters / detail
+            ctx.globalAlpha = 0.15;
+            ctx.fillStyle = '#6a3a9a';
+            ctx.beginPath(); ctx.arc(planetX - planetR * 0.2, planetY + planetR * 0.1, planetR * 0.15, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#3a1a5a';
+            ctx.beginPath(); ctx.arc(planetX + planetR * 0.3, planetY - planetR * 0.2, planetR * 0.1, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 1;
+
+            // Atmosphere rim
+            ctx.strokeStyle = `rgba(140, 80, 200, ${0.2 + progress * 0.2})`;
+            ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(planetX, planetY, planetR + 4, 0, Math.PI * 2); ctx.stroke();
+
+            // Ship approaching with screen shake
+            const shipX = W * 0.55 - progress * W * 0.15;
+            const shipY = H * 0.48 + Math.sin(cinematicTimer * 6) * (3 + progress * 25);
+
+            // Debris particles on approach
+            for (const d of cineDebris) {
+                d.x -= d.speed * dt * (1 + progress * 2);
+                d.rot += d.rotSpd * dt;
+                if (d.x < -20) { d.x = W + 20; d.y = Math.random() * H; }
+                ctx.save();
+                ctx.translate(d.x, d.y);
+                ctx.rotate(d.rot);
+                ctx.globalAlpha = 0.3 + progress * 0.4;
+                ctx.fillStyle = d.color;
+                ctx.fillRect(-d.size / 2, -d.size / 2, d.size, d.size * 0.6);
+                ctx.restore();
+            }
+
+            if (progress > 0.4) {
+                const shakeAmt = (progress - 0.4) * 25;
+                ctx.setTransform(1, 0, 0, 1, (Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
+            }
+
+            drawDetailedShip(shipX, shipY, 1.4, progress, dt, true);
+
+            // Warning HUD
+            ctx.fillStyle = '#e63946';
+            ctx.font = '18px Orbitron';
+            ctx.textAlign = 'center';
+            const blink = Math.sin(cinematicTimer * 8) > 0 ? 1 : 0.3;
+            ctx.globalAlpha = progress * blink;
+            ctx.fillText('⚠ COLLISION  IMMINENT ⚠', W / 2, H * 0.86);
+            ctx.globalAlpha = progress * 0.6;
+            ctx.font = '12px Rajdhani';
+            ctx.fillStyle = '#ff9999';
+            ctx.fillText('HULL INTEGRITY: ' + Math.max(0, Math.round((1 - progress) * 100)) + '%', W / 2, H * 0.91);
+            ctx.globalAlpha = 1;
+
+        } else if (cinematicTimer < 6) {
+            // ── Phase 3: Impact flash + fade to gameplay ──
+            const progress = (cinematicTimer - 5);
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+            // White/orange flash
+            if (progress < 0.2) {
+                const flashFade = 1 - progress / 0.2;
+                ctx.fillStyle = `rgba(255, 220, 120, ${flashFade})`;
+                ctx.fillRect(0, 0, W, H);
+            } else if (progress < 0.4) {
+                const flashFade = 1 - (progress - 0.2) / 0.2;
+                ctx.fillStyle = `rgba(255, 100, 50, ${flashFade * 0.6})`;
+                ctx.fillRect(0, 0, W, H);
+            }
+
+            // Fade to black
+            ctx.fillStyle = `rgba(0,0,0,${Math.min(1, progress * 1.5)})`;
+            ctx.fillRect(0, 0, W, H);
+
+            // Impact text
+            ctx.fillStyle = '#4cc9f0';
+            ctx.font = '22px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.globalAlpha = Math.max(0, 1 - progress * 2);
+            ctx.fillText('CRASH LANDING DETECTED', W / 2, H / 2 - 10);
+            ctx.font = '13px Rajdhani';
+            ctx.fillStyle = '#ff6b6b';
+            ctx.fillText('ALL SYSTEMS CRITICAL — INITIATE EMERGENCY PROTOCOL', W / 2, H / 2 + 20);
+            ctx.globalAlpha = 1;
+        }
+
+        // Mark cinematic as done once it exceeds 6 seconds
+        if (cinematicTimer >= 6) {
+            cinematicPlayed = true;
+        }
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+        // Cinematic letterbox bars
+        const barHeight = H * 0.1;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, barHeight);
+        ctx.fillRect(0, H - barHeight, W, barHeight);
+
+        // Subtle time code overlay
+        const seconds = Math.floor(cinematicTimer * 24);
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`REC ● T+${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}:${String(Math.floor((cinematicTimer % 1) * 24)).padStart(2, '0')}`, W - 20, barHeight + 16);
+        ctx.globalAlpha = 1;
+    }
+
+    function drawDetailedShip(x, y, scale, progress, dt, damaged) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+
+        // Engine exhaust trail
+        for (let i = 0; i < 3; i++) {
+            const exLen = 15 + Math.random() * 25 + progress * 20;
+            const exY = (i - 1) * 6;
+            const exGrad = ctx.createLinearGradient(-30, exY, -30 - exLen, exY);
+            exGrad.addColorStop(0, 'rgba(76, 201, 240, 0.8)');
+            exGrad.addColorStop(0.3, 'rgba(100, 200, 255, 0.4)');
+            exGrad.addColorStop(1, 'transparent');
+            ctx.strokeStyle = exGrad;
+            ctx.lineWidth = 3 - Math.abs(i - 1);
+            ctx.beginPath();
+            ctx.moveTo(-28, exY);
+            ctx.lineTo(-28 - exLen + (Math.random() - 0.5) * 5, exY + (Math.random() - 0.5) * 4);
+            ctx.stroke();
+        }
+
+        // Engine core glow
+        ctx.fillStyle = '#4cc9f0';
+        ctx.shadowColor = '#4cc9f0';
+        ctx.shadowBlur = 20 + Math.sin(progress * 10) * 5;
+        ctx.beginPath();
+        ctx.ellipse(-29, 0, 4, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Hull body - main fuselage
+        ctx.fillStyle = damaged ? '#6a7080' : '#8899aa';
+        ctx.strokeStyle = damaged ? '#555' : '#aabbcc';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(32, 0);       // nose tip
+        ctx.lineTo(22, -6);
+        ctx.lineTo(12, -10);
+        ctx.lineTo(-8, -14);    // top edge
+        ctx.lineTo(-22, -16);   // rear top
+        ctx.lineTo(-28, -10);   // engine pod top
+        ctx.lineTo(-28, 10);    // engine pod bottom
+        ctx.lineTo(-22, 16);    // rear bottom
+        ctx.lineTo(-8, 14);     // bottom edge
+        ctx.lineTo(12, 10);
+        ctx.lineTo(22, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Wing struts
+        ctx.fillStyle = damaged ? '#556070' : '#778899';
+        ctx.beginPath();
+        ctx.moveTo(-5, -14); ctx.lineTo(-15, -26); ctx.lineTo(-22, -24); ctx.lineTo(-18, -14);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-5, 14); ctx.lineTo(-15, 26); ctx.lineTo(-22, 24); ctx.lineTo(-18, 14);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+
+        // Cockpit window
+        const winGrad = ctx.createRadialGradient(18, -1, 1, 18, -1, 6);
+        winGrad.addColorStop(0, '#80d4ff');
+        winGrad.addColorStop(1, '#2a6090');
+        ctx.fillStyle = winGrad;
+        ctx.beginPath();
+        ctx.ellipse(18, -1, 5, 3.5, -0.1, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Hull panel lines
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.moveTo(5, -12); ctx.lineTo(5, 12); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-10, -15); ctx.lineTo(-10, 15); ctx.stroke();
+
+        // Damage FX
+        if (damaged) {
+            ctx.globalAlpha = 0.5 + Math.random() * 0.3;
+            // Sparks
+            for (let i = 0; i < 3; i++) {
+                ctx.fillStyle = Math.random() > 0.5 ? '#ff6633' : '#ffaa33';
+                const sx = (Math.random() - 0.3) * 40;
+                const sy = (Math.random() - 0.5) * 20;
+                ctx.fillRect(sx, sy, 2, 2);
+            }
+            // Smoke trail
+            ctx.globalAlpha = 0.15;
+            ctx.fillStyle = '#888';
+            for (let i = 0; i < 5; i++) {
+                const sr = 3 + Math.random() * 8;
+                ctx.beginPath();
+                ctx.arc(-30 - i * 12 + Math.random() * 6, (Math.random() - 0.5) * 15, sr, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        ctx.restore();
+    }
+
+    // ======================== MAIN LOOP ========================
+    let lastTime = performance.now();
+
+    function gameLoop(now) {
+        const dt = Math.min(0.05, (now - lastTime) / 1000);
+        lastTime = now;
+
+        updateParticles(dt);
+
+        if (announcementTimer > 0) {
+            announcementTimer -= dt;
+            if (announcementTimer <= 0 && phaseDisplay.classList.contains('show')) {
+                phaseDisplay.classList.remove('show');
+            }
+        }
+
+        render(dt);
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+})();

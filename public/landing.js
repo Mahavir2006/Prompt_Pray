@@ -260,6 +260,40 @@
     `;
     document.head.appendChild(shakeStyle);
 
+    // ======================== LEADERBOARD ========================
+    const ROLE_LB_COLORS = { vanguard: '#4cc9f0', engineer: '#f4a261', scout: '#06d6a0', medic: '#ef476f' };
+    function loadLeaderboard() {
+        fetch('/api/leaderboard')
+            .then(r => r.json())
+            .then(data => {
+                const body = document.getElementById('lbBody');
+                if (!body) return;
+                if (!data || data.length === 0) {
+                    body.innerHTML = '<div class="lb-loading">NO DATA YET</div>';
+                    return;
+                }
+                body.innerHTML = data.map((p, i) => {
+                    const topClass = i === 0 ? 'lb-top1' : i === 1 ? 'lb-top2' : i === 2 ? 'lb-top3' : '';
+                    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+                    const roleColor = ROLE_LB_COLORS[p.role] || '#fff';
+                    return `<div class="lb-row ${topClass}">
+                        <span class="lb-rank">${medal}</span>
+                        <span class="lb-name">${p.name}</span>
+                        <span class="lb-role" style="color:${roleColor}">${(p.role || '—').toUpperCase()}</span>
+                        <span class="lb-score">${p.totalScore}</span>
+                        <span class="lb-missions">${p.missionsCompleted}</span>
+                        <span class="lb-kills">${p.enemiesKilled}</span>
+                        <span class="lb-games">${p.gamesPlayed}</span>
+                    </div>`;
+                }).join('');
+            })
+            .catch(() => {
+                const body = document.getElementById('lbBody');
+                if (body) body.innerHTML = '<div class="lb-loading">FAILED TO LOAD</div>';
+            });
+    }
+    loadLeaderboard();
+
     // ======================== GAME LOOP ========================
     let lastTime = performance.now();
     function loop(now) {

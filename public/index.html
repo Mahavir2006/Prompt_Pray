@@ -28,7 +28,78 @@
         </div>
     </div>
 
+    <!-- DISCLAIMER & GUIDELINES OVERLAY -->
+    <div id="disclaimerOverlay" class="overlay" style="display:none;">
+        <div class="disclaimer-container">
+            <div class="disclaimer-box">
+                <div class="disclaimer-header">⚠ CLASSIFIED BRIEFING ⚠</div>
+                <div id="disclaimerText" class="disclaimer-text"></div>
+                <div id="guidelinesBox" class="guidelines-box" style="display:none;">
+                    <div class="guidelines-title">MISSION GUIDELINES</div>
+                    <ul class="guidelines-list">
+                        <li><span class="gl-key">WASD</span> Move your operative</li>
+                        <li><span class="gl-key">CLICK</span> Attack enemies</li>
+                        <li><span class="gl-key">E</span> Interact with objectives &amp; terminals</li>
+                        <li><span class="gl-key">Q</span> Activate special ability</li>
+                        <li><span class="gl-key">TAB</span> View live scoreboard</li>
+                        <li><span class="gl-key">ENTER</span> Team chat</li>
+                    </ul>
+                    <p class="guidelines-note">Complete all objectives before the 10-minute timer runs out. Trivia terminals appear after each repair — answer correctly to advance. Work together to survive.</p>
+                </div>
+                <button id="disclaimerContinueBtn" class="btn btn-primary disclaimer-btn" style="display:none;">COMMENCE MISSION</button>
+            </div>
+        </div>
+    </div>
+
     <canvas id="gameCanvas"></canvas>
+
+    <!-- TRIVIA TERMINAL OVERLAY -->
+    <div id="triviaOverlay" class="overlay" style="display:none;">
+        <div class="trivia-terminal">
+            <!-- Top bezel -->
+            <div class="tt-bezel tt-bezel-top">
+                <div class="tt-light tt-light-green"></div>
+                <div class="tt-slot"></div>
+                <div class="tt-light-bar"><span></span><span></span><span></span><span></span></div>
+            </div>
+            <!-- Main screen -->
+            <div class="tt-screen">
+                <div class="tt-scanline"></div>
+                <div class="tt-header">MISSION TERMINAL v3.2</div>
+                <div class="tt-divider"></div>
+                <div id="triviaCounter" class="tt-counter">QUESTION 1 / 1</div>
+                <div class="tt-divider tt-divider-thin"></div>
+                <div id="triviaQuestion" class="tt-question"></div>
+                <div id="triviaOptions" class="tt-options"></div>
+                <div class="tt-footer">
+                    <div class="tt-radar">
+                        <div class="tt-radar-ring"></div>
+                        <div class="tt-radar-sweep"></div>
+                        <div class="tt-radar-dot"></div>
+                    </div>
+                    <div id="triviaTimer" class="tt-timer">TIME REMAINING: <span id="triviaTimerNum">10</span> SECONDS</div>
+                </div>
+            </div>
+            <!-- Bottom bezel -->
+            <div class="tt-bezel tt-bezel-bottom">
+                <div class="tt-slot tt-slot-wide"></div>
+                <div class="tt-light tt-light-red"></div>
+                <div class="tt-light-bar"><span></span><span></span><span></span></div>
+                <div class="tt-light tt-light-amber"></div>
+            </div>
+            <!-- Side decorations -->
+            <div class="tt-side tt-side-left">
+                <div class="tt-bolt"></div>
+                <div class="tt-vert-bar"><span></span><span></span><span></span><span></span><span></span></div>
+                <div class="tt-bolt"></div>
+            </div>
+            <div class="tt-side tt-side-right">
+                <div class="tt-bolt"></div>
+                <div class="tt-vert-bar"><span></span><span></span><span></span><span></span><span></span></div>
+                <div class="tt-bolt"></div>
+            </div>
+        </div>
+    </div>
 
     <!-- LOBBY OVERLAY -->
     <div id="lobbyOverlay" class="overlay">
@@ -154,7 +225,7 @@
             }
         })();
     </script>
-    <script src="game.js?v=8"></script>
+    <script type="module" src="js/main.js"></script>
 </body>
 
 </html>

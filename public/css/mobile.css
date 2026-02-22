@@ -1,0 +1,98 @@
+/* ============ MOBILE BLOCK ============ */
+.mobile-block {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at 50% 40%, #0e1a2b 0%, #050510 70%);
+    animation: fadeIn 0.6s ease;
+}
+
+.mobile-block-content {
+    text-align: center;
+    padding: 40px 32px;
+    max-width: 360px;
+}
+
+.mobile-block-icon {
+    font-size: 4rem;
+    margin-bottom: 16px;
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-12px); }
+}
+
+.mobile-block-title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 2.6rem;
+    font-weight: 900;
+    background: linear-gradient(135deg, #4cc9f0, #7b2cbf, #f72585);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: 0.2em;
+    margin-bottom: 20px;
+}
+
+.mobile-block-divider {
+    width: 60px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #4cc9f0, transparent);
+    margin: 0 auto 24px;
+}
+
+.mobile-block-msg {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.1rem;
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.6;
+    margin-bottom: 28px;
+}
+
+.mobile-block-coming {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 700;
+    letter-spacing: 0.4em;
+    background: linear-gradient(90deg, #4cc9f0, #06d6a0);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 16px;
+}
+
+.mobile-block-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 28px;
+}
+
+.mobile-block-dots span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4cc9f0;
+    opacity: 0.3;
+    animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.mobile-block-dots span:nth-child(2) { animation-delay: 0.2s; }
+.mobile-block-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotPulse {
+    0%, 100% { opacity: 0.2; transform: scale(1); }
+    50%      { opacity: 1; transform: scale(1.3); }
+}
+
+.mobile-block-hint {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.3);
+    line-height: 1.5;
+}
