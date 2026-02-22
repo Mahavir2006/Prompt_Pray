@@ -1879,6 +1879,21 @@ wss.on('connection', (ws) => {
                 break;
             }
 
+            case 'devWinGame': {
+                if (!currentRoom || !currentRoom.gameState) return;
+                const gs = currentRoom.gameState;
+                if (gs.boss) {
+                    gs.boss.hp = 0;
+                } else {
+                    gs.phase = 'final';
+                    gs.phaseTimer = 0;
+                    gs.objectiveProgress = 0;
+                    gs.finalCountdown = true;
+                    gs.timer = 10;
+                }
+                break;
+            }
+
             case 'chat': {
                 if (!currentRoom || !currentRoom.gameState) return;
                 const player = currentRoom.players.get(ws);
