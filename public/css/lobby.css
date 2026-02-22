@@ -169,10 +169,80 @@
     margin-bottom: 12px;
 }
 
-.role-vanguard { color: #4cc9f0; }
-.role-engineer { color: #f4a261; }
-.role-scout    { color: #06d6a0; }
-.role-medic    { color: #ef476f; }
+.role-avatar-container {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 16px;
+}
+
+.role-avatar-char {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    z-index: 1;
+}
+
+.role-avatar-char.flip-east {
+    transform: scaleX(-1);
+}
+
+.role-avatar-weapon {
+    position: absolute;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    z-index: 2;
+}
+
+.weapon-vanguard {
+    width: 70%;
+    height: 70%;
+    top: 10%;
+    left: 45%;
+    transform: rotate(15deg);
+}
+
+.weapon-engineer {
+    width: 90%;
+    top: 25%;
+    left: 30%;
+    transform: rotate(30deg);
+}
+
+.weapon-scout {
+    width: 70%;
+    top: 45%;
+    left: 55%;
+}
+
+.weapon-medic {
+    width: 60%;
+    top: 30%;
+    left: -20%;
+}
+
+.role-vanguard {
+    color: #4cc9f0;
+}
+
+.role-engineer {
+    color: #f4a261;
+}
+
+.role-scout {
+    color: #06d6a0;
+}
+
+.role-medic {
+    color: #ef476f;
+}
 
 .role-card h3 {
     font-family: 'Press Start 2P', monospace;

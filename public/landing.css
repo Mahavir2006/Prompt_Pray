@@ -592,6 +592,69 @@ body {
     color: var(--pink);
 }
 
+.rc-name {
+    color: var(--pink);
+}
+
+.rc-avatar-container {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
+}
+
+.rc-avatar-char {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    z-index: 1;
+}
+
+.rc-avatar-char.flip-east {
+    transform: scaleX(-1);
+}
+
+.rc-avatar-weapon {
+    position: absolute;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    z-index: 2;
+}
+
+.weapon-vanguard {
+    width: 70%;
+    height: 70%;
+    top: 10%;
+    left: 45%;
+    transform: rotate(15deg);
+}
+
+.weapon-engineer {
+    width: 90%;
+    top: 25%;
+    left: 30%;
+    transform: rotate(30deg);
+}
+
+.weapon-scout {
+    width: 70%;
+    top: 45%;
+    left: 55%;
+}
+
+.weapon-medic {
+    width: 60%;
+    top: 30%;
+    left: -20%;
+}
+
 .rc-icon {
     font-size: 2.8rem;
     margin-bottom: 12px;
@@ -1382,9 +1445,18 @@ body {
     scrollbar-color: rgba(77, 166, 255, 0.3) transparent;
 }
 
-.lb-body::-webkit-scrollbar { width: 6px; }
-.lb-body::-webkit-scrollbar-track { background: transparent; }
-.lb-body::-webkit-scrollbar-thumb { background: rgba(77, 166, 255, 0.3); border-radius: 3px; }
+.lb-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.lb-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.lb-body::-webkit-scrollbar-thumb {
+    background: rgba(77, 166, 255, 0.3);
+    border-radius: 3px;
+}
 
 .lb-row {
     display: grid;
@@ -1402,18 +1474,35 @@ body {
     background: rgba(77, 166, 255, 0.06);
 }
 
-.lb-row.lb-top1 { background: rgba(255, 215, 0, 0.08); }
-.lb-row.lb-top2 { background: rgba(192, 192, 192, 0.06); }
-.lb-row.lb-top3 { background: rgba(205, 127, 50, 0.06); }
+.lb-row.lb-top1 {
+    background: rgba(255, 215, 0, 0.08);
+}
+
+.lb-row.lb-top2 {
+    background: rgba(192, 192, 192, 0.06);
+}
+
+.lb-row.lb-top3 {
+    background: rgba(205, 127, 50, 0.06);
+}
 
 .lb-row .lb-rank {
     font-family: var(--font-orb);
     font-weight: 700;
     font-size: 0.9rem;
 }
-.lb-top1 .lb-rank { color: #ffd700; }
-.lb-top2 .lb-rank { color: #c0c0c0; }
-.lb-top3 .lb-rank { color: #cd7f32; }
+
+.lb-top1 .lb-rank {
+    color: #ffd700;
+}
+
+.lb-top2 .lb-rank {
+    color: #c0c0c0;
+}
+
+.lb-top3 .lb-rank {
+    color: #cd7f32;
+}
 
 .lb-row .lb-name {
     font-weight: 600;
@@ -1443,15 +1532,27 @@ body {
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 0.5; }
-    50% { opacity: 1; }
+
+    0%,
+    100% {
+        opacity: 0.5;
+    }
+
+    50% {
+        opacity: 1;
+    }
 }
 
 @media (max-width: 768px) {
-    .lb-header, .lb-row {
+
+    .lb-header,
+    .lb-row {
         grid-template-columns: 40px 1fr 80px 70px;
     }
-    .lb-missions, .lb-kills, .lb-games {
+
+    .lb-missions,
+    .lb-kills,
+    .lb-games {
         display: none;
     }
 }

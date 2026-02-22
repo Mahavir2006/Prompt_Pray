@@ -6,9 +6,9 @@ import { showError } from './ui.js';
 import { connect } from './network.js';
 import { playSFX, startLobbyMusic, stopAllMusic } from './audio.js';
 
-const lobbyOverlay   = document.getElementById('lobbyOverlay');
-const connectScreen  = document.getElementById('connectScreen');
-const roomScreen     = document.getElementById('roomScreen');
+const lobbyOverlay = document.getElementById('lobbyOverlay');
+const connectScreen = document.getElementById('connectScreen');
+const roomScreen = document.getElementById('roomScreen');
 const gameOverOverlay = document.getElementById('gameOverOverlay');
 const disclaimerOverlay = document.getElementById('disclaimerOverlay');
 
@@ -48,14 +48,7 @@ export function initLobby() {
         if (S.ws) S.ws.send(JSON.stringify({ type: 'ready' }));
     };
 
-    document.getElementById('copyCodeBtn').onclick = () => {
-        const code = document.getElementById('roomCodeDisplay').textContent;
-        navigator.clipboard.writeText(code).then(() => {
-            const btn = document.getElementById('copyCodeBtn');
-            btn.textContent = '✅';
-            setTimeout(() => { btn.textContent = '📋'; }, 1500);
-        });
-    };
+
 
     document.getElementById('startBtn').onclick = () => {
         if (S.ws) S.ws.send(JSON.stringify({ type: 'startGame' }));

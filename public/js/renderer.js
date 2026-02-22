@@ -485,18 +485,26 @@ function drawVanguardSprite(p, s, isMe, dt) {
         const sw = sprite.naturalWidth * SPRITE_SCALE;
         const sh = sprite.naturalHeight * SPRITE_SCALE;
         const drawY = s.y + idleBob;
+
+        const facingRight = Math.cos(facingAngle) >= 0;
+        const needsFlip = (p.role === 'scout' || p.role === 'medic') && facingRight;
+
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(sprite, s.x - sw / 2, drawY - sh / 2, sw, sh);
+        ctx.save();
+        ctx.translate(s.x, drawY);
+        if (needsFlip) ctx.scale(-1, 1);
+        ctx.drawImage(sprite, -sw / 2, -sh / 2, sw, sh);
 
         // White flash overlay when hit
         if (anim.hitFlash > 0) {
             ctx.globalAlpha = anim.hitFlash * 3;   // quick bright flash
             ctx.globalCompositeOperation = 'source-atop';
             ctx.fillStyle = '#fff';
-            ctx.fillRect(s.x - sw / 2, drawY - sh / 2, sw, sh);
+            ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
             ctx.globalCompositeOperation = 'source-over';
             ctx.globalAlpha = 1;
         }
+        ctx.restore();
         ctx.imageSmoothingEnabled = true;
     } else {
         ctx.fillStyle = '#4cc9f0';
@@ -855,7 +863,29 @@ function drawProjectiles() {
         const s = worldToScreen(p.x, p.y);
         const angle = Math.atan2(p.vy || 0, p.vx || 0);
 
-        if (p.isPlayerProj && p.ownerRole === 'engineer' && spearImg && spearImg.complete && spearImg.naturalWidth > 0) {
+        if (p.isTurretProj) {
+            // Turret bullets: grey circles
+            ctx.fillStyle = '#888888';
+            ctx.shadowColor = '#aaaaaa';
+            ctx.shadowBlur = 6;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        } else if (p.penetrating) {
+            // Scout penetrating shot: bright green glow
+            ctx.fillStyle = '#06d6a0';
+            ctx.shadowColor = '#06d6a0';
+            ctx.shadowBlur = 16;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        } else if (p.isPlayerProj && p.ownerRole === 'engineer' && spearImg && spearImg.complete && spearImg.naturalWidth > 0) {
             const spScale = 0.1;
             const spW = spearImg.naturalWidth * spScale;
             const spH = spearImg.naturalHeight * spScale;

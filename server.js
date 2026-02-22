@@ -888,36 +888,51 @@ function activateAbility(gs, player) {
             const tx = player.x + Math.cos(angle) * 60;
             const ty = player.y + Math.sin(angle) * 60;
             gs.turrets.push({
-                x: tx, y: ty, hp: 100, timer: 10, attackCd: 0, owner: player.id, range: 200, damage: 12
+                x: tx, y: ty, hp: 100, timer: 12, attackCd: 0, owner: player.id, range: 200, damage: 20,
+                map: player.currentMap || 'ship'
             });
             gs.events.push({ type: 'announcement', text: 'TURRET DEPLOYED', duration: 2, color: '#f4a261' });
             break;
         }
 
-        case 'scout':
-            gs.weakpointActive = true;
-            gs.weakpointTimer = 8;
-            gs.events.push({ type: 'announcement', text: 'WEAKPOINT SCAN ACTIVE', duration: 2, color: '#06d6a0' });
+        case 'scout': {
+            const sAngle = Math.atan2(player.input.mouseY - player.y, player.input.mouseX - player.x);
+            const sId = nextProjId++;
+            gs.projectiles.set(sId, {
+                id: sId, x: player.x, y: player.y,
+                dx: Math.cos(sAngle) * PROJ_SPEED * 1.5,
+                dy: Math.sin(sAngle) * PROJ_SPEED * 1.5,
+                damage: 150,
+                owner: player.id,
+                life: 1.5,
+                isPlayerProj: true,
+                ownerRole: 'scout',
+                map: player.currentMap || 'ship',
+                penetrating: true
+            });
+            gs.events.push({ type: 'announcement', text: 'PIERCING SHOT FIRED', duration: 2, color: '#06d6a0' });
             break;
+        }
 
-        case 'medic':
+        case 'medic': {
+            const HEAL_ABILITY_RADIUS = 768; // 8 tiles * 32px * 3 MAP_SCALE
+            let totalHealed = 0;
             for (const [, p] of gs.players) {
                 if (!p.alive) continue;
                 const d = distance(player, p);
-                if (d < 300) {
-                    p.hp = Math.min(p.maxHp, p.hp + 60);
+                if (d < HEAL_ABILITY_RADIUS) {
+                    const healAmt = Math.floor(p.maxHp * 0.5);
+                    p.hp = Math.min(p.maxHp, p.hp + healAmt);
                     p.abilityActive = true;
                     p.abilityTimer = 4;
-                    gs.events.push({ type: 'heal', x: p.x, y: p.y - 20, value: 60 });
+                    gs.events.push({ type: 'heal', x: p.x, y: p.y - 20, value: healAmt });
+                    totalHealed += healAmt;
                 }
             }
-            let healedCount = 0;
-            for (const [, hp] of gs.players) {
-                if (hp.alive && distance(player, hp) < 300) healedCount++;
-            }
-            player.score.healingDone += 60 * healedCount;
+            player.score.healingDone += totalHealed;
             gs.events.push({ type: 'announcement', text: 'FIELD SURGE', duration: 2, color: '#ef476f' });
             break;
+        }
     }
 }
 
@@ -1051,33 +1066,40 @@ function handleSpawning(gs, room) {
     let spawnMap = 'ship';
     switch (gs.phase) {
         case 'objective1':
-            spawnZone = 'corridor'; count = 1 + Math.floor(Math.random() * 2); interval = 10;
+            // Task in Cockpit (Top), spawn at Engine (Bottom)
+            spawnZone = 'engine'; count = 1 + Math.floor(Math.random() * 2); interval = 10;
             break;
         case 'objective2':
-            spawnZone = 'left_3'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
+            // Task on Left side, spawn on Right side
+            spawnZone = 'right_3'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
             break;
         case 'objective3':
-            spawnZone = 'wave3'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
+            // Task on Right side, spawn on Left side (and maybe Engine)
+            spawnZone = Math.random() < 0.5 ? 'left_3' : 'engine'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
             includeElites = true;
             break;
         case 'trivia1':
-            spawnZone = 'right_3'; count = 2 + Math.floor(Math.random() * 2); interval = 6;
+            // Task at Airlock/Engine (Bottom), spawn at Cockpit (Top)
+            spawnZone = 'cockpit_room'; count = 2 + Math.floor(Math.random() * 2); interval = 6;
             includeElites = true;
             break;
         case 'trivia2':
         case 'objective4':
-            spawnZone = 'planet_left'; count = 3; interval = 8; includeElites = true;
+            // Task on Planet Left, spawn on Planet Right
+            spawnZone = 'planet_right'; count = 3; interval = 8; includeElites = true;
             spawnMap = 'planet';
             break;
         case 'trivia3':
         case 'objective5':
-            spawnZone = 'planet_right'; count = 3; interval = 6; includeElites = true;
+            // Task on Planet Right, spawn on Planet Left
+            spawnZone = 'planet_left'; count = 3; interval = 6; includeElites = true;
             spawnMap = 'planet';
             break;
         case 'boss':
             return; // Boss handles its own adds
         case 'final':
-            spawnZone = 'engine'; count = 1; interval = 16;
+            // Task is escaping back to ship or escaping, spawn around
+            spawnZone = 'wave3'; count = 1; interval = 16;
             break;
         default:
             return;
@@ -1260,6 +1282,28 @@ function updateProjectiles(gs) {
         proj.life -= DT;
         if (proj.life <= 0) { gs.projectiles.delete(id); continue; }
 
+        // ── Wall/obstacle collision ──
+        const projMap = proj.map || 'ship';
+        const activeObstacles = projMap === 'planet' ? PLANET_OBSTACLES : OBSTACLES;
+        let hitWall = false;
+        for (const obs of activeObstacles) {
+            if (obs.type === 'rect') {
+                if (proj.x >= obs.x && proj.x <= obs.x + obs.w &&
+                    proj.y >= obs.y && proj.y <= obs.y + obs.h) {
+                    hitWall = true;
+                    break;
+                }
+            } else if (obs.type === 'circle') {
+                const cdx = proj.x - obs.x;
+                const cdy = proj.y - obs.y;
+                if (Math.sqrt(cdx * cdx + cdy * cdy) < obs.r + PROJ_RADIUS) {
+                    hitWall = true;
+                    break;
+                }
+            }
+        }
+        if (hitWall) { gs.projectiles.delete(id); continue; }
+
         if (proj.isPlayerProj) {
             // Check enemy hits
             for (const [, enemy] of gs.enemies) {
@@ -1268,15 +1312,19 @@ function updateProjectiles(gs) {
                 if (distance(proj, enemy) < PROJ_RADIUS + r) {
                     const player = gs.players.get(proj.owner);
                     damageEnemy(gs, enemy, proj.damage, player);
-                    gs.projectiles.delete(id);
-                    break;
+                    if (!proj.penetrating) {
+                        gs.projectiles.delete(id);
+                        break;
+                    }
                 }
             }
             // Check boss hit
             if (gs.boss && (gs.boss.map || 'planet') === (proj.map || 'ship') && distance(proj, gs.boss) < PROJ_RADIUS + BOSS_RADIUS) {
                 const player = gs.players.get(proj.owner);
                 if (player) damageBoss(gs, proj.damage, player);
-                gs.projectiles.delete(id);
+                if (!proj.penetrating) {
+                    gs.projectiles.delete(id);
+                }
             }
         } else {
             // Enemy/Boss projectile - check player hits
@@ -1310,22 +1358,31 @@ function updateTurrets(gs) {
             // Find nearest enemy
             let target = null, minDist = turret.range;
             for (const [, enemy] of gs.enemies) {
+                if ((enemy.map || 'ship') !== (turret.map || 'ship')) continue;
                 const d = distance(turret, enemy);
                 if (d < minDist) { minDist = d; target = enemy; }
             }
-            if (!target && gs.boss && distance(turret, gs.boss) < turret.range) {
+            if (!target && gs.boss && (gs.boss.map || 'planet') === (turret.map || 'ship') && distance(turret, gs.boss) < turret.range) {
                 target = gs.boss;
             }
             if (target) {
-                if (target === gs.boss) {
-                    const player = gs.players.get(turret.owner);
-                    if (player) damageBoss(gs, turret.damage, player);
-                } else {
-                    const player = gs.players.get(turret.owner);
-                    damageEnemy(gs, target, turret.damage, player);
-                }
+                // Spawn a projectile toward the target
+                const angle = Math.atan2(target.y - turret.y, target.x - turret.x);
+                const tId = nextProjId++;
+                gs.projectiles.set(tId, {
+                    id: tId, x: turret.x, y: turret.y,
+                    dx: Math.cos(angle) * PROJ_SPEED,
+                    dy: Math.sin(angle) * PROJ_SPEED,
+                    damage: turret.damage,
+                    owner: turret.owner,
+                    life: turret.range / PROJ_SPEED,
+                    isPlayerProj: true,
+                    isTurretProj: true,
+                    ownerRole: 'engineer',
+                    map: turret.map || 'ship'
+                });
                 gs.events.push({ type: 'turretShot', x1: turret.x, y1: turret.y, x2: target.x, y2: target.y });
-                turret.attackCd = 0.5;
+                turret.attackCd = 0.5; // 2 shots per second
             }
         }
     }
@@ -1650,7 +1707,7 @@ function broadcastState(room) {
 
     const projs = [];
     for (const [, p] of gs.projectiles) {
-        projs.push({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), vx: p.vx || p.dx, vy: p.vy || p.dy, isPlayerProj: p.isPlayerProj, ownerRole: p.ownerRole });
+        projs.push({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), vx: p.vx || p.dx, vy: p.vy || p.dy, isPlayerProj: p.isPlayerProj, ownerRole: p.ownerRole, isTurretProj: p.isTurretProj || false, penetrating: p.penetrating || false });
     }
 
     const phaseToObj = {
@@ -1805,7 +1862,7 @@ wss.on('connection', (ws) => {
                 if (msg.success) {
                     gsPlayer.score.triviaCorrect += 1;
                     // Only advance phase if still on the same trivia phase (prevent multi-player skip)
-                    const triviaPhases = ['trivia_core','trivia_left','trivia_right','trivia1','trivia2','trivia3'];
+                    const triviaPhases = ['trivia_core', 'trivia_left', 'trivia_right', 'trivia1', 'trivia2', 'trivia3'];
                     if (triviaPhases.includes(gs.phase)) {
                         completeObjective(gs, currentRoom);
                     }

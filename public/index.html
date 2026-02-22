@@ -44,9 +44,11 @@
                         <li><span class="gl-key">TAB</span> View live scoreboard</li>
                         <li><span class="gl-key">ENTER</span> Team chat</li>
                     </ul>
-                    <p class="guidelines-note">Complete all objectives before the 10-minute timer runs out. Trivia terminals appear after each repair — answer correctly to advance. Work together to survive.</p>
+                    <p class="guidelines-note">Complete all objectives before the 10-minute timer runs out. Trivia
+                        terminals appear after each repair — answer correctly to advance. Work together to survive.</p>
                 </div>
-                <button id="disclaimerContinueBtn" class="btn btn-primary disclaimer-btn" style="display:none;">COMMENCE MISSION</button>
+                <button id="disclaimerContinueBtn" class="btn btn-primary disclaimer-btn" style="display:none;">COMMENCE
+                    MISSION</button>
             </div>
         </div>
     </div>
@@ -77,7 +79,8 @@
                         <div class="tt-radar-sweep"></div>
                         <div class="tt-radar-dot"></div>
                     </div>
-                    <div id="triviaTimer" class="tt-timer">TIME REMAINING: <span id="triviaTimerNum">10</span> SECONDS</div>
+                    <div id="triviaTimer" class="tt-timer">TIME REMAINING: <span id="triviaTimerNum">10</span> SECONDS
+                    </div>
                 </div>
             </div>
             <!-- Bottom bezel -->
@@ -122,7 +125,6 @@
             <div id="roomScreen" style="display:none;">
                 <div class="room-code-display">
                     ROOM: <span id="roomCodeDisplay"></span>
-                    <button id="copyCodeBtn" class="copy-btn" title="Copy room code">📋</button>
                     <button id="speakerBtn" class="btn btn-secondary"
                         style="padding: 6px 14px; margin-left:20px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">SPEAKER
                         OFF</button>
@@ -134,7 +136,11 @@
                 </div>
                 <div id="roleSelection" class="role-grid">
                     <div class="role-card" data-role="vanguard">
-                        <div class="role-icon role-vanguard">⬡</div>
+                        <div class="role-avatar-container">
+                            <img class="role-avatar-char" src="/assets/vanguard/rotations/east.png" alt="Vanguard">
+                            <img class="role-avatar-weapon weapon-vanguard"
+                                src="/assets/sword-vanguard/rotations/east.png" alt="Sword">
+                        </div>
                         <h3>VANGUARD</h3>
                         <div class="role-stats">
                             <span>HP: 220</span><span>DMG: 28</span>
@@ -143,31 +149,40 @@
                         <p class="role-ability">Q: Overdrive — 40 dmg, -30% taken (6s)</p>
                     </div>
                     <div class="role-card" data-role="engineer">
-                        <div class="role-icon role-engineer">⚙</div>
+                        <div class="role-avatar-container">
+                            <img class="role-avatar-char" src="/assets/engineer/rotations/east.png" alt="Engineer">
+                            <img class="role-avatar-weapon weapon-engineer" src="/assets/spear.png" alt="Spear">
+                        </div>
                         <h3>ENGINEER</h3>
                         <div class="role-stats">
                             <span>HP: 170</span><span>DMG: 18</span>
                         </div>
-                        <p class="role-desc">Repair specialist. 40% faster repairs.</p>
-                        <p class="role-ability">Q: Auto-Turret — 12 dps turret (10s)</p>
+                        <p class="role-desc">Repairs objects 40% faster. Deploys auto-turrets.</p>
+                        <p class="role-ability">Q: Auto-Turret — 40 dps turret (12s)</p>
                     </div>
                     <div class="role-card" data-role="scout">
-                        <div class="role-icon role-scout">◆</div>
+                        <div class="role-avatar-container">
+                            <img class="role-avatar-char flip-east" src="/assets/scout/rotations/east.png" alt="Scout">
+                            <img class="role-avatar-weapon weapon-scout" src="/assets/gun.png" alt="Gun">
+                        </div>
                         <h3>SCOUT</h3>
                         <div class="role-stats">
                             <span>HP: 140</span><span>DMG: 22</span>
                         </div>
-                        <p class="role-desc">Fast attacker. +15% speed. Full minimap.</p>
-                        <p class="role-ability">Q: Weakpoint Scan — +35% boss dmg (8s)</p>
+                        <p class="role-desc">Fast mover. Reveals enemy positions on minimap.</p>
+                        <p class="role-ability">Q: Piercing Shot — 150 dmg, penetrates enemies</p>
                     </div>
                     <div class="role-card" data-role="medic">
-                        <div class="role-icon role-medic">✚</div>
+                        <div class="role-avatar-container">
+                            <img class="role-avatar-char flip-east" src="/assets/medic/rotations/east.png" alt="Medic">
+                            <img class="role-avatar-weapon weapon-medic" src="/assets/medbox.png" alt="Medbox">
+                        </div>
                         <h3>MEDIC</h3>
                         <div class="role-stats">
                             <span>HP: 160</span><span>DMG: 10</span>
                         </div>
                         <p class="role-desc">Healer. 20 HP/s heal beam to allies.</p>
-                        <p class="role-ability">Q: Field Surge — 60 HP AoE heal (4s resist)</p>
+                        <p class="role-ability">Q: Field Surge — 50% max HP burst AoE heal</p>
                     </div>
                 </div>
                 <div id="playerList" class="player-list"></div>
