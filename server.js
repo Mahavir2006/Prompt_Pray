@@ -120,19 +120,9 @@ try {
 }
 
 // ── PLANET MAP INTEGRATION START ──
-// Walkable zone rectangles for the 1536x1024 planet exterior map
+// Walkable zone rectangles for the 1024x1024 planet exterior map
 const PLANET_MAP_ZONES = [
-    // Main open area (large walkable terrain)
-    { id: 'planet_north', x: 180, y: 10, w: 750, h: 290 },
-    { id: 'planet_center', x: 50, y: 300, w: 1440, h: 400 },
-    { id: 'planet_south', x: 200, y: 700, w: 1100, h: 300 },
-    // Pipe corridors
-    { id: 'planet_pipe_left', x: 0, y: 350, w: 180, h: 100 },
-    { id: 'planet_pipe_right', x: 1350, y: 350, w: 186, h: 100 },
-    // Base area (buildings at bottom)
-    { id: 'planet_base', x: 500, y: 750, w: 540, h: 250 },
-    // Entry zone (where players arrive from ship)
-    { id: 'planet_entry', x: 680, y: 950, w: 180, h: 74 },
+    { id: 'planet_main', x: 0, y: 0, w: 1024, h: 1024 }
 ];
 
 const PLANET_OBSTACLES = [];
@@ -210,18 +200,18 @@ const PLANET_SCALE = 3;
 PLANET_MAP_ZONES.forEach(z => { z.x *= PLANET_SCALE; z.y *= PLANET_SCALE; z.w *= PLANET_SCALE; z.h *= PLANET_SCALE; });
 PLANET_OBSTACLES.forEach(o => { o.x *= PLANET_SCALE; o.y *= PLANET_SCALE; if (o.w) o.w *= PLANET_SCALE; if (o.h) o.h *= PLANET_SCALE; if (o.r) o.r *= PLANET_SCALE; });
 
-const PLANET_W = 1536 * PLANET_SCALE;
+const PLANET_W = 1024 * PLANET_SCALE;
 const PLANET_H = 1024 * PLANET_SCALE;
 
 // ── MAP TRANSITION ZONES ──
 // Ship engine room bottom edge -> Planet entry
-const SHIP_EXIT_ZONE = { x: 430 * MAP_SCALE, y: 960 * MAP_SCALE, w: 164 * MAP_SCALE, h: 30 * MAP_SCALE };
+const SHIP_EXIT_ZONE = { x: 400 * MAP_SCALE, y: 920 * MAP_SCALE, w: 224 * MAP_SCALE, h: 104 * MAP_SCALE };
 // Planet entry -> back to ship
-const PLANET_EXIT_ZONE = { x: 680 * PLANET_SCALE, y: 10 * PLANET_SCALE, w: 180 * PLANET_SCALE, h: 30 * PLANET_SCALE };
+const PLANET_EXIT_ZONE = { x: 400 * PLANET_SCALE, y: 900 * PLANET_SCALE, w: 224 * PLANET_SCALE, h: 124 * PLANET_SCALE };
 // Spawn positions when entering planet
-const PLANET_SPAWN = { x: 768 * PLANET_SCALE, y: 500 * PLANET_SCALE };
+const PLANET_SPAWN = { x: 768 * PLANET_SCALE, y: 816 * PLANET_SCALE };
 // Spawn positions when returning to ship
-const SHIP_RETURN_SPAWN = { x: 512 * MAP_SCALE, y: 900 * MAP_SCALE };
+const SHIP_RETURN_SPAWN = { x: 512 * MAP_SCALE, y: 950 * MAP_SCALE };
 
 const OBJECTIVES = [
     { phase: 'objective1', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, repairTime: 12, desc: 'Stabilize Core System', zone: 'cockpit_room', map: 'ship' },
@@ -625,6 +615,19 @@ function updatePlayer(gs, player) {
     const role = ROLES[player.role];
     const inp = player.input;
 
+    // Track E double tap for map transition
+    let doubleTappedInteract = false;
+    if (inp.interact && !player.prevInteract) {
+        let now = Date.now();
+        if (now - (player.lastInteractTime || 0) < 600) {
+            doubleTappedInteract = true;
+            player.lastInteractTime = 0; // reset
+        } else {
+            player.lastInteractTime = now;
+        }
+    }
+    player.prevInteract = inp.interact;
+
     // Movement
     let dx = 0, dy = 0;
     if (inp.w) dy -= 1;
@@ -638,9 +641,11 @@ function updatePlayer(gs, player) {
         if (player.role === 'scout') speed *= 1.15;
         player.x += dx * speed * DT;
         player.y += dy * speed * DT;
-        constrainToMap(gs, player);
+    }
+    constrainToMap(gs, player);
 
-        // ── MAP TRANSITION CHECK ──
+    // ── MAP TRANSITION CHECK ──
+    if (doubleTappedInteract) {
         if (player.currentMap === 'ship') {
             // Check if player entered ship exit zone (engine room bottom)
             if (player.x > SHIP_EXIT_ZONE.x && player.x < SHIP_EXIT_ZONE.x + SHIP_EXIT_ZONE.w &&
@@ -652,7 +657,7 @@ function updatePlayer(gs, player) {
                 gs.events.push({ type: 'mapChange', playerId: player.id, map: 'planet' });
             }
         } else if (player.currentMap === 'planet') {
-            // Check if player entered planet exit zone (top edge)
+            // Check if player entered planet exit zone (bottom edge)
             if (player.x > PLANET_EXIT_ZONE.x && player.x < PLANET_EXIT_ZONE.x + PLANET_EXIT_ZONE.w &&
                 player.y > PLANET_EXIT_ZONE.y && player.y < PLANET_EXIT_ZONE.y + PLANET_EXIT_ZONE.h) {
                 player.currentMap = 'ship';

@@ -82,7 +82,7 @@
 
     const WORLD_W = 1024 * MAP_SCALE;
     const WORLD_H = 1024 * MAP_SCALE;
-    const PLANET_W = 1536 * MAP_SCALE;
+    const PLANET_W = 1024 * MAP_SCALE;
     const PLANET_H = 1024 * MAP_SCALE;
     // ── MAP INTEGRATION END ──
 
@@ -1085,10 +1085,10 @@
         // Draw transition zone indicator (glowing portal effect)
         if (myCurrentMap === 'ship') {
             // Ship exit zone indicator at engine room bottom
-            const exitX = 430 * MAP_SCALE;
-            const exitY = 960 * MAP_SCALE;
-            const exitW = 164 * MAP_SCALE;
-            const exitH = 30 * MAP_SCALE;
+            const exitX = 400 * MAP_SCALE;
+            const exitY = 920 * MAP_SCALE;
+            const exitW = 224 * MAP_SCALE;
+            const exitH = 104 * MAP_SCALE;
             const es = worldToScreen(exitX, exitY);
             const time = performance.now() / 1000;
             const pulse = Math.sin(time * 3) * 0.3 + 0.5;
@@ -1102,14 +1102,14 @@
             ctx.fillStyle = `rgba(244, 162, 97, ${pulse})`;
             ctx.font = '12px Orbitron';
             ctx.textAlign = 'center';
-            ctx.fillText('▼ EXIT TO PLANET ▼', es.x + exitW / 2, es.y + exitH / 2 + 4);
+            ctx.fillText('▼ PRESS E TWICE TO EXIT ▼', es.x + exitW / 2, es.y + exitH / 2 + 4);
             ctx.restore();
         } else if (myCurrentMap === 'planet') {
             // Planet exit zone indicator at top edge
-            const exitX = 680 * MAP_SCALE;
-            const exitY = 10 * MAP_SCALE;
-            const exitW = 180 * MAP_SCALE;
-            const exitH = 30 * MAP_SCALE;
+            const exitX = 400 * MAP_SCALE;
+            const exitY = 900 * MAP_SCALE;
+            const exitW = 224 * MAP_SCALE;
+            const exitH = 124 * MAP_SCALE;
             const es = worldToScreen(exitX, exitY);
             const time = performance.now() / 1000;
             const pulse = Math.sin(time * 3) * 0.3 + 0.5;
@@ -1123,7 +1123,7 @@
             ctx.fillStyle = `rgba(76, 201, 240, ${pulse})`;
             ctx.font = '12px Orbitron';
             ctx.textAlign = 'center';
-            ctx.fillText('▲ RETURN TO SHIP ▲', es.x + exitW / 2, es.y + exitH / 2 + 4);
+            ctx.fillText('▲ PRESS E TWICE TO RETURN ▲', es.x + exitW / 2, es.y + exitH / 2 + 4);
             ctx.restore();
         }
 
@@ -1131,13 +1131,7 @@
         if (debugMode) {
             ctx.save();
             const activeZones = myCurrentMap === 'planet' ? [
-                { id: 'planet_north', x: 180 * MAP_SCALE, y: 10 * MAP_SCALE, w: 750 * MAP_SCALE, h: 290 * MAP_SCALE },
-                { id: 'planet_center', x: 50 * MAP_SCALE, y: 300 * MAP_SCALE, w: 1440 * MAP_SCALE, h: 400 * MAP_SCALE },
-                { id: 'planet_south', x: 200 * MAP_SCALE, y: 700 * MAP_SCALE, w: 1100 * MAP_SCALE, h: 300 * MAP_SCALE },
-                { id: 'planet_pipe_left', x: 0, y: 350 * MAP_SCALE, w: 180 * MAP_SCALE, h: 100 * MAP_SCALE },
-                { id: 'planet_pipe_right', x: 1350 * MAP_SCALE, y: 350 * MAP_SCALE, w: 186 * MAP_SCALE, h: 100 * MAP_SCALE },
-                { id: 'planet_base', x: 500 * MAP_SCALE, y: 750 * MAP_SCALE, w: 540 * MAP_SCALE, h: 250 * MAP_SCALE },
-                { id: 'planet_entry', x: 680 * MAP_SCALE, y: 950 * MAP_SCALE, w: 180 * MAP_SCALE, h: 74 * MAP_SCALE },
+                { id: 'planet_main', x: 0, y: 0, w: 1024 * MAP_SCALE, h: 1024 * MAP_SCALE }
             ] : MAP_ZONES;
             const activeObs = myCurrentMap === 'planet' ? PLANET_OBSTACLES : OBSTACLES;
 
