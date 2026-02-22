@@ -5,7 +5,7 @@ import { startTrivia } from './trivia.js';
 import { handleWebRTCSignal } from './voicechat.js';
 import { showAnnouncement, showGameOver, showError, displayChatMessage } from './ui.js';
 import { addShake } from './camera.js';
-import { playSFX, playDamage, playLowHealth, playEnemySpotted, playPlayerDeath, playBossDeath } from './audio.js';
+import { playSFX, playDamage, playLowHealth, playEnemySpotted, playPlayerDeath, playBossDeath, startLobbyMusic, startGameMusic, startBossMusic, stopAllMusic } from './audio.js';
 
 // Track local player state for SFX triggers
 let wasAlive = true;
@@ -56,6 +56,7 @@ function handleMessage(msg) {
             connectScreen.style.display = 'none';
             roomScreen.style.display = 'block';
             document.getElementById('roomCodeDisplay').textContent = msg.roomCode;
+            startLobbyMusic();   // start lobby background music
             break;
 
         case 'lobbyUpdate':
@@ -79,6 +80,7 @@ function handleMessage(msg) {
                 S.screenPhase = 'cinematic';
                 S.cinematicTimer = 0;
                 playSFX('countdown');   // "3 2 1 go" after launch mission
+                startGameMusic();       // transition lobby → in-game BG music
             });
             break;
 
@@ -117,6 +119,7 @@ function handleMessage(msg) {
         case 'gameOver':
             S.screenPhase = 'gameover';
             hud.style.display = 'none';
+            stopAllMusic();                         // silence all BG tracks
             if (!msg.victory) playSFX('gameOver');  // game over audio on defeat
             showGameOver(msg);
             break;
@@ -207,7 +210,10 @@ function processEvent(evt) {
             }
             break;
         case 'bossDeath':
-            playBossDeath();   // shout first, then death audio
+            playBossDeath();   // shout first, then death audio; also stops boss music
+            break;
+        case 'bossSpawn':
+            startBossMusic();  // final boss BG music starts
             break;
         case 'chat':
             displayChatMessage(evt.name, evt.msg, evt.color);

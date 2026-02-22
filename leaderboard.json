@@ -324,6 +324,18 @@
     "gamesPlayed": 4
   },
   {
+    "name": "hi",
+    "role": "vanguard",
+    "totalScore": 95,
+    "missionsCompleted": 0,
+    "enemiesKilled": 7,
+    "damageDealt": 754,
+    "healingDone": 0,
+    "repairsDone": 83,
+    "triviaCorrect": 1,
+    "gamesPlayed": 2
+  },
+  {
     "name": "TESLA",
     "role": "engineer",
     "totalScore": 90,
@@ -498,18 +510,6 @@
     "missionsCompleted": 0,
     "enemiesKilled": 6,
     "damageDealt": 280,
-    "healingDone": 0,
-    "repairsDone": 3,
-    "triviaCorrect": 0,
-    "gamesPlayed": 1
-  },
-  {
-    "name": "hi",
-    "role": "scout",
-    "totalScore": 0,
-    "missionsCompleted": 0,
-    "enemiesKilled": 0,
-    "damageDealt": 110,
     "healingDone": 0,
     "repairsDone": 3,
     "triviaCorrect": 0,

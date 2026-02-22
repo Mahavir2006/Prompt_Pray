@@ -2,10 +2,14 @@
 // Centralises all sound-effect playback.  Each clip is pre-loaded as an
 // HTMLAudioElement so the first play is instant.  A small pool (clone)
 // approach lets overlapping plays work without cutting off the previous one.
+//
+// Background music tracks (Lobby / Game / FinalBoss) are managed separately
+// with crossfade helpers so they never overlap and stay at low volume
+// relative to voice-chat.
 
 const SFX_PATH = '/assets/sfx/';
 
-// ── Pre-load every clip ──
+// ── Pre-load every SFX clip ──
 const clips = {
     countdown:    new Audio(SFX_PATH + 'countdown.wav'),     // "3 2 1 go" – after launch mission
     ready:        new Audio(SFX_PATH + 'ready.wav'),         // player clicks Ready
@@ -21,24 +25,127 @@ const clips = {
     adios:        new Audio(SFX_PATH + 'adios.wav'),         // player death (random pick)
 };
 
-// Pre-load all clips
+// Pre-load all SFX clips
 Object.values(clips).forEach(a => { a.preload = 'auto'; a.load(); });
 
-// ── Volume defaults ──
+// ── Volume defaults (kept LOW so voice-chat is always clearly audible) ──
 const VOLUMES = {
-    countdown:    0.7,
-    ready:        0.5,
-    enemySpotted: 0.6,
-    damage1:      0.5,
-    damage2:      0.5,
-    lowHealth:    0.6,
-    shout:        0.7,
-    death:        0.7,
-    gameOver:     0.8,
-    allDone:      0.7,
-    goodbye:      0.6,
-    adios:        0.6,
+    countdown:    0.45,
+    ready:        0.30,
+    enemySpotted: 0.35,
+    damage1:      0.30,
+    damage2:      0.30,
+    lowHealth:    0.35,
+    shout:        0.40,
+    death:        0.40,
+    gameOver:     0.45,
+    allDone:      0.35,
+    goodbye:      0.35,
+    adios:        0.35,
 };
+
+// ===================== BACKGROUND MUSIC =====================
+// Three looping tracks:
+//   LobbyBG   – plays in the lobby until "Launch Mission"
+//   GameBG    – plays after lobby music ends, until the final boss enters
+//   FinalBoss – plays when the boss spawns, loops until boss dies
+
+const BG_VOLUME = 0.18;           // master volume for ALL background music
+const BOSS_VOLUME = 0.22;         // slightly louder for the boss track
+const FADE_MS = 1500;             // crossfade duration
+
+const bgTracks = {
+    lobby:     new Audio(SFX_PATH + 'LobbyBG.mpeg'),
+    game:      new Audio(SFX_PATH + 'GameBG.mpeg'),
+    finalBoss: new Audio(SFX_PATH + 'FinalBoss.mpeg'),
+};
+
+// Configure all BG tracks for looping
+Object.values(bgTracks).forEach(a => {
+    a.preload = 'auto';
+    a.loop = true;
+    a.volume = 0;
+    a.load();
+});
+
+let activeBgTrack = null;   // key of currently playing track ('lobby' | 'game' | 'finalBoss' | null)
+let fadeInterval = null;
+
+/**
+ * Fade an audio element from its current volume to `targetVol` over `ms` milliseconds.
+ * Returns a promise that resolves when done.
+ */
+function fadeAudio(audio, targetVol, ms = FADE_MS) {
+    return new Promise(resolve => {
+        const step = 30;                       // interval ms
+        const steps = Math.max(1, ms / step);
+        const delta = (targetVol - audio.volume) / steps;
+        let remaining = steps;
+        const id = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                audio.volume = Math.max(0, Math.min(1, targetVol));
+                clearInterval(id);
+                resolve();
+            } else {
+                audio.volume = Math.max(0, Math.min(1, audio.volume + delta));
+            }
+        }, step);
+    });
+}
+
+/**
+ * Switch to a different BG music track (or stop all if trackKey is null).
+ * Cross-fades out the old track and fades in the new one.
+ */
+async function switchBgTrack(trackKey) {
+    if (trackKey === activeBgTrack) return;
+
+    // Fade out current track
+    if (activeBgTrack && bgTracks[activeBgTrack]) {
+        const old = bgTracks[activeBgTrack];
+        fadeAudio(old, 0, FADE_MS).then(() => { old.pause(); old.currentTime = 0; });
+    }
+
+    activeBgTrack = trackKey;
+    if (!trackKey) return;
+
+    const next = bgTracks[trackKey];
+    if (!next) return;
+    const targetVol = trackKey === 'finalBoss' ? BOSS_VOLUME : BG_VOLUME;
+    next.volume = 0;
+    next.currentTime = 0;
+    next.play().catch(() => {});
+    fadeAudio(next, targetVol, FADE_MS);
+}
+
+/** Start lobby background music. */
+export function startLobbyMusic() {
+    switchBgTrack('lobby');
+}
+
+/** Transition from lobby music to in-game background music. */
+export function startGameMusic() {
+    switchBgTrack('game');
+}
+
+/** Transition to the final boss music. */
+export function startBossMusic() {
+    switchBgTrack('finalBoss');
+}
+
+/** Stop the final boss music (boss died). */
+export function stopBossMusic() {
+    // After boss dies, resume game BG briefly (or just silence — the game is ending)
+    switchBgTrack(null);
+}
+
+/** Stop all background music (game over / back to lobby). */
+export function stopAllMusic() {
+    switchBgTrack(null);
+}
+
+// ===================== SFX HELPERS =====================
 
 /**
  * Play a named sound effect.
@@ -50,7 +157,7 @@ export function playSFX(name, vol) {
     const src = clips[name];
     if (!src) return;
     const a = src.cloneNode();
-    a.volume = vol ?? VOLUMES[name] ?? 0.5;
+    a.volume = vol ?? VOLUMES[name] ?? 0.3;
     a.play().catch(() => {});   // swallow autoplay-policy errors
 }
 
@@ -70,8 +177,10 @@ export function playPlayerDeath() {
 
 /**
  * Boss death sequence: shout first, then death audio after shout finishes.
+ * Also stops boss music.
  */
 export function playBossDeath() {
+    stopBossMusic();
     const shoutClip = clips.shout.cloneNode();
     shoutClip.volume = VOLUMES.shout;
     shoutClip.play().catch(() => {});

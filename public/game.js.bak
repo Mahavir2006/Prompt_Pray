@@ -2445,7 +2445,7 @@
             ctx.fillStyle = '#4cc9f0';
             ctx.font = 'bold 15px Orbitron';
             ctx.textAlign = 'center';
-            ctx.fillText('DEPARTING EARTH — MISSION PROMPT&PLAY', W / 2, H * 0.88);
+            ctx.fillText('DEPARTING EARTH — MISSION EXOPLAY', W / 2, H * 0.88);
             ctx.font = '11px Rajdhani';
             ctx.fillStyle = 'rgba(255,255,255,0.4)';
             ctx.fillText('DESTINATION: UNCHARTED EXOPLANET KX-7741', W / 2, H * 0.92);

@@ -53,7 +53,11 @@ export function render(dt) {
     drawObjective();
     drawTurrets();
     drawEnemies();
-    if (S.gameState.boss) drawBoss();
+    if (S.gameState.boss) {
+        drawBoss();
+    } else {
+        bossSpawnTime = 0; // reset for next encounter
+    }
     drawProjectiles();
     drawPlayers(dt);
     drawParticles();
@@ -444,23 +448,61 @@ function drawVanguardSprite(p, s, isMe, dt) {
             anim.walkFrame = (anim.walkFrame + 1) % 6;
         }
         sprite = sprites.walk[dir][anim.walkFrame];
+
+        // Footstep dust particles while walking
+        anim.dustTimer = (anim.dustTimer || 0) + dt;
+        if (anim.dustTimer >= 0.18) {
+            anim.dustTimer = 0;
+            S.particles.push({
+                x: p.x + (Math.random() - 0.5) * 8,
+                y: p.y + 12,
+                vx: (Math.random() - 0.5) * 20,
+                vy: -Math.random() * 15,
+                life: 0.35,
+                color: 'rgba(200,200,200,0.25)',
+                size: 2 + Math.random() * 2
+            });
+        }
     } else {
         anim.walkFrame = 0;
         anim.walkTimer = 0;
+        anim.dustTimer = 0;
         sprite = sprites.idle[dir];
     }
+
+    // ── Idle breathing bob (subtle vertical oscillation) ──
+    const idleBob = isMoving ? 0 : Math.sin(performance.now() / 400) * 2;
+
+    // ── Hit-flash tracking ──
+    if (!anim.hitFlash) anim.hitFlash = 0;
+    if (anim.prevHp !== undefined && p.hp < anim.prevHp && p.hp > 0) {
+        anim.hitFlash = 0.25;   // flash for 250 ms
+    }
+    anim.prevHp = p.hp;
+    if (anim.hitFlash > 0) anim.hitFlash -= dt;
 
     if (sprite && sprite.complete && sprite.naturalWidth > 0) {
         const sw = sprite.naturalWidth * SPRITE_SCALE;
         const sh = sprite.naturalHeight * SPRITE_SCALE;
+        const drawY = s.y + idleBob;
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(sprite, s.x - sw / 2, s.y - sh / 2, sw, sh);
+        ctx.drawImage(sprite, s.x - sw / 2, drawY - sh / 2, sw, sh);
+
+        // White flash overlay when hit
+        if (anim.hitFlash > 0) {
+            ctx.globalAlpha = anim.hitFlash * 3;   // quick bright flash
+            ctx.globalCompositeOperation = 'source-atop';
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(s.x - sw / 2, drawY - sh / 2, sw, sh);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+        }
         ctx.imageSmoothingEnabled = true;
     } else {
         ctx.fillStyle = '#4cc9f0';
         ctx.strokeStyle = isMe ? '#fff' : 'rgba(255,255,255,0.3)';
         ctx.lineWidth = isMe ? 2.5 : 1;
-        drawHexagon(s.x, s.y, 18);
+        drawHexagon(s.x, s.y + idleBob, 18);
     }
 
     // Weapon sprite
@@ -604,9 +646,25 @@ function drawEnemies() {
             anim.frame++;
         }
 
-        const action = isMoving ? 'walk' : 'idle';
-        const sheet = sheets[action];
-        const maxFrames = ORC_FRAME_COUNTS[action];
+        // ── Enemy hit-flash tracking ──
+        if (!anim.hitFlash) anim.hitFlash = 0;
+        if (anim.prevHp !== undefined && e.hp < anim.prevHp) {
+            anim.hitFlash = 0.2;
+        }
+        anim.prevHp = e.hp;
+        if (anim.hitFlash > 0) anim.hitFlash -= 0.016;
+
+        // Choose animation: attack if enemy is striking, hurt if just hit, move/idle otherwise
+        let action;
+        if (e.attacking) {
+            action = 'attack';
+        } else if (anim.hitFlash > 0.12) {
+            action = 'hurt';
+        } else {
+            action = isMoving ? (isElite && Math.abs(dx) + Math.abs(dy) > 3 ? 'run' : 'walk') : 'idle';
+        }
+        const sheet = sheets[action] || sheets[isMoving ? 'walk' : 'idle'];
+        const maxFrames = ORC_FRAME_COUNTS[action] || ORC_FRAME_COUNTS['idle'];
         const frameIdx = anim.frame % maxFrames;
 
         if (sheet && sheet.complete && sheet.naturalWidth > 0) {
@@ -619,6 +677,17 @@ function drawEnemies() {
             ctx.translate(s.x, s.y);
             ctx.imageSmoothingEnabled = false;
             ctx.drawImage(sheet, sx, sy, ORC_FRAME, ORC_FRAME, -dW / 2, -dH / 2, dW, dH);
+
+            // White hit-flash overlay
+            if (anim.hitFlash > 0) {
+                ctx.globalAlpha = anim.hitFlash * 4;
+                ctx.globalCompositeOperation = 'source-atop';
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(-dW / 2, -dH / 2, dW, dH);
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 1;
+            }
+
             ctx.imageSmoothingEnabled = true;
             if (isElite) {
                 ctx.shadowColor = '#ff6b6b';
@@ -649,6 +718,7 @@ function drawEnemies() {
 }
 
 // ======================== BOSS ========================
+let bossSpawnTime = 0; // tracks when boss first appeared for entrance animation
 function drawBoss() {
     const ctx = S.ctx;
     const bossMap = S.gameState.boss.map || 'planet';
@@ -657,6 +727,22 @@ function drawBoss() {
     const s = worldToScreen(boss.x, boss.y);
     const time = performance.now() / 1000;
     const sheets = orcSprites.orc3;
+
+    // ── Boss entrance animation (first 2 seconds) ──
+    if (bossSpawnTime === 0) bossSpawnTime = time;
+    const spawnAge = time - bossSpawnTime;
+    const entranceScale = Math.min(1, spawnAge / 1.2);                     // scale from 0→1 over 1.2s
+    const entranceAlpha = Math.min(1, spawnAge / 0.8);                     // fade in over 0.8s
+    const shockwaveRadius = spawnAge < 1.5 ? spawnAge * 200 : 0;          // expanding ring
+
+    // Shockwave ring during entrance
+    if (shockwaveRadius > 0 && shockwaveRadius < 300) {
+        ctx.strokeStyle = `rgba(123, 44, 191, ${1 - shockwaveRadius / 300})`;
+        ctx.lineWidth = 4 - (shockwaveRadius / 100);
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, shockwaveRadius, 0, Math.PI * 2);
+        ctx.stroke();
+    }
 
     const dx = boss.x - (S.bossAnim.prevX || boss.x);
     const dy = boss.y - (S.bossAnim.prevY || boss.y);
@@ -677,7 +763,8 @@ function drawBoss() {
     const maxFrames = ORC_FRAME_COUNTS[action];
     const frameIdx = S.bossAnim.frame % maxFrames;
 
-    const auraSize = 70 + Math.sin(time * 2) * 10;
+    const auraSize = (70 + Math.sin(time * 2) * 10) * entranceScale;
+    ctx.globalAlpha = entranceAlpha;
     ctx.fillStyle = boss.aggroPhase
         ? `rgba(230, 57, 70, ${0.1 + Math.sin(time * 4) * 0.05})`
         : `rgba(123, 44, 191, ${0.08 + Math.sin(time * 2) * 0.04})`;
@@ -688,7 +775,7 @@ function drawBoss() {
     if (sheet && sheet.complete && sheet.naturalWidth > 0) {
         const sx = frameIdx * ORC_FRAME;
         const sy = dirRow * ORC_FRAME;
-        const bossScale = 4.0;
+        const bossScale = 4.0 * entranceScale;
         const dW = ORC_FRAME * bossScale;
         const dH = ORC_FRAME * bossScale;
         ctx.save();
@@ -756,6 +843,8 @@ function drawBoss() {
     ctx.font = '10px Orbitron';
     ctx.textAlign = 'center';
     ctx.fillText(`ORC WARLORD — ${Math.round(boss.hp)} / ${boss.maxHp}`, S.canvas.width / 2, barY + barH + 16);
+
+    ctx.globalAlpha = 1;   // reset after entrance fade
 }
 
 // ======================== PROJECTILES / TURRETS / PARTICLES / FLOATS ========================

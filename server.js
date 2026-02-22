@@ -313,6 +313,15 @@ const SPAWN_POINTS = {
     corridor: [{ x: 512 * MAP_SCALE, y: 400 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 500 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 600 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 700 * MAP_SCALE }],
     left_3: [{ x: 250 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 300 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 350 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 200 * MAP_SCALE, y: 480 * MAP_SCALE }],
     right_3: [{ x: 774 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 700 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 650 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 824 * MAP_SCALE, y: 480 * MAP_SCALE }],
+    // Wave 3 spread: enemies pour in from engine, corridor AND both flanks
+    wave3: [
+        { x: 400 * MAP_SCALE, y: 810 * MAP_SCALE }, { x: 600 * MAP_SCALE, y: 810 * MAP_SCALE },  // engine bay
+        { x: 512 * MAP_SCALE, y: 850 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 790 * MAP_SCALE },  // engine centre
+        { x: 512 * MAP_SCALE, y: 400 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 500 * MAP_SCALE },  // corridor mid
+        { x: 512 * MAP_SCALE, y: 700 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 600 * MAP_SCALE },  // corridor low
+        { x: 250 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 200 * MAP_SCALE, y: 480 * MAP_SCALE },  // left flank
+        { x: 774 * MAP_SCALE, y: 480 * MAP_SCALE }, { x: 824 * MAP_SCALE, y: 480 * MAP_SCALE },  // right flank
+    ],
     engine: [{ x: 400 * MAP_SCALE, y: 810 * MAP_SCALE }, { x: 600 * MAP_SCALE, y: 810 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 850 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 790 * MAP_SCALE }],
     boss_adds: [{ x: 200 * MAP_SCALE, y: 800 * MAP_SCALE }, { x: 824 * MAP_SCALE, y: 800 * MAP_SCALE }, { x: 512 * MAP_SCALE, y: 780 * MAP_SCALE }, { x: 350 * MAP_SCALE, y: 850 * MAP_SCALE }],
     planet_left: [{ x: 380 * PLANET_SCALE, y: 250 * PLANET_SCALE }, { x: 380 * PLANET_SCALE, y: 400 * PLANET_SCALE }, { x: 500 * PLANET_SCALE, y: 250 * PLANET_SCALE }, { x: 500 * PLANET_SCALE, y: 400 * PLANET_SCALE }],
@@ -1030,6 +1039,11 @@ function handleSpawning(gs, room) {
         if (gs.phaseEnemiesSpawned >= 23) return; // Max 23 enemies for second wave
     }
 
+    // Custom logic for third phase (wave 3)
+    if (gs.phase === 'objective3') {
+        if (gs.phaseEnemiesSpawned >= 36) return; // Max 36 enemies for third wave
+    }
+
     gs.spawnTimer -= DT;
     if (gs.spawnTimer > 0) return;
 
@@ -1043,6 +1057,9 @@ function handleSpawning(gs, room) {
             spawnZone = 'left_3'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
             break;
         case 'objective3':
+            spawnZone = 'wave3'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
+            includeElites = true;
+            break;
         case 'trivia1':
             spawnZone = 'right_3'; count = 2 + Math.floor(Math.random() * 2); interval = 6;
             includeElites = true;
@@ -1067,12 +1084,14 @@ function handleSpawning(gs, room) {
     }
 
     const mapEnemyCount = [...gs.enemies.values()].filter(e => (e.map || 'ship') === spawnMap).length;
-    if (mapEnemyCount > 10) return; // Cap enemies per map
+    const maxOnMap = gs.phase === 'objective3' ? 18 : 10; // allow more concurrent enemies in wave 3
+    if (mapEnemyCount > maxOnMap) return; // Cap enemies per map
 
     const points = SPAWN_POINTS[spawnZone] || SPAWN_POINTS.corridor;
     for (let i = 0; i < count; i++) {
         if (gs.phase === 'objective1' && gs.phaseEnemiesSpawned >= 8) break;
         if (gs.phase === 'objective2' && gs.phaseEnemiesSpawned >= 23) break;
+        if (gs.phase === 'objective3' && gs.phaseEnemiesSpawned >= 36) break;
         const sp = points[Math.floor(Math.random() * points.length)];
         const type = includeElites && Math.random() < 0.3 ? 'elite' : 'common';
         spawnEnemy(gs, sp.x + (Math.random() - 0.5) * 40, sp.y + (Math.random() - 0.5) * 40, type, spawnMap);
@@ -1460,6 +1479,7 @@ function completeObjective(gs, room) {
             gs.phase = 'boss';
             spawnBoss(gs);
             gs.enemies.clear();
+            gs.events.push({ type: 'bossSpawn' });
             gs.events.push({ type: 'announcement', text: 'ALL NODES SECURED! BOSS APPROACHING!', duration: 5, color: '#ff0000' });
             break;
 
@@ -1623,7 +1643,8 @@ function broadcastState(room) {
             id: e.id, x: Math.round(e.x), y: Math.round(e.y),
             hp: Math.round(e.hp), maxHp: Math.round(e.maxHp), type: e.type,
             orcType: e.orcType || 'orc1',
-            map: e.map || 'ship'
+            map: e.map || 'ship',
+            attacking: e.attackCd > 0.5   // true when enemy just attacked (within cooldown)
         });
     }
 
