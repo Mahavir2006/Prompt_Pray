@@ -5,11 +5,16 @@ import { startTrivia } from './trivia.js';
 import { handleWebRTCSignal } from './voicechat.js';
 import { showAnnouncement, showGameOver, showError, displayChatMessage } from './ui.js';
 import { addShake } from './camera.js';
+import { playSFX, playDamage, playLowHealth, playEnemySpotted, playPlayerDeath, playBossDeath } from './audio.js';
 
-const connectScreen  = document.getElementById('connectScreen');
-const roomScreen     = document.getElementById('roomScreen');
-const lobbyOverlay   = document.getElementById('lobbyOverlay');
-const hud            = document.getElementById('hud');
+// Track local player state for SFX triggers
+let wasAlive = true;
+let lowHealthPlayed = false;
+
+const connectScreen = document.getElementById('connectScreen');
+const roomScreen = document.getElementById('roomScreen');
+const lobbyOverlay = document.getElementById('lobbyOverlay');
+const hud = document.getElementById('hud');
 
 export function connect(onOpen) {
     if (S.ws) {
@@ -67,10 +72,13 @@ function handleMessage(msg) {
             S.cinematicTimer = 0;
             S.triviaAnswered = 0;
             S.cinematicPlayed = false;
+            wasAlive = true;
+            lowHealthPlayed = false;
             S.screenPhase = 'disclaimer';
             showDisclaimer(() => {
                 S.screenPhase = 'cinematic';
                 S.cinematicTimer = 0;
+                playSFX('countdown');   // "3 2 1 go" after launch mission
             });
             break;
 
@@ -84,6 +92,23 @@ function handleMessage(msg) {
                 hud.style.display = 'block';
             }
 
+            // ── Local-player SFX: death & low-health ──
+            if (msg.players && S.myId) {
+                const me = msg.players.find(p => p.id === S.myId);
+                if (me) {
+                    // Player death: random adios or goodbye
+                    if (wasAlive && !me.alive) {
+                        playPlayerDeath();
+                    }
+                    wasAlive = me.alive;
+
+                    // Low health warning at < 20% HP
+                    if (me.alive && me.hp > 0 && me.hp / me.maxHp < 0.20) {
+                        playLowHealth();
+                    }
+                }
+            }
+
             if (msg.events) {
                 msg.events.forEach(processEvent);
             }
@@ -92,6 +117,7 @@ function handleMessage(msg) {
         case 'gameOver':
             S.screenPhase = 'gameover';
             hud.style.display = 'none';
+            if (!msg.victory) playSFX('gameOver');  // game over audio on defeat
             showGameOver(msg);
             break;
 
@@ -115,6 +141,13 @@ function processEvent(evt) {
                 life: 1.0, vy: -50
             });
             addShake(3);
+            // Play damage grunt when the local player is hit
+            if (S.gameState && S.gameState.players) {
+                const me = S.gameState.players.find(p => p.id === S.myId);
+                if (me && Math.abs(evt.x - me.x) < 40 && Math.abs(evt.y + 25 - me.y) < 40) {
+                    playDamage();
+                }
+            }
             break;
         case 'heal':
             S.floatTexts.push({
@@ -152,14 +185,29 @@ function processEvent(evt) {
                 life: 0.15, color: '#f4a261', size: 3
             });
             break;
-        case 'announcement':
+        case 'announcement': {
             if (evt.playerId && evt.playerId !== S.myId) break;
             showAnnouncement(evt.text, evt.duration || 3, evt.color);
+            const t = (evt.text || '').toUpperCase();
+            // Task / objective completed → "all done"
+            if (t.includes('STABILIZED') || t.includes('AUTHENTICATED') || t.includes('UNLOCKED') ||
+                t.includes('REPAIRED') || t.includes('SECURED') || t.includes('DEFEATED')) {
+                playSFX('allDone');
+            }
+            // Wave of enemies → "enemy spotted"
+            if (t.includes('GUARDIAN') || t.includes('ENRAGED') ||
+                t.includes('STABILIZE THE CORE')) {
+                playEnemySpotted();
+            }
             break;
+        }
         case 'startTrivia':
             if (evt.playerId === S.myId) {
                 startTrivia(evt.difficulty, evt.timeLimit, evt.phase);
             }
+            break;
+        case 'bossDeath':
+            playBossDeath();   // shout first, then death audio
             break;
         case 'chat':
             displayChatMessage(evt.name, evt.msg, evt.color);

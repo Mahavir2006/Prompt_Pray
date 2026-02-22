@@ -682,17 +682,13 @@ function gameTick(room) {
         }
     }
 
-    // Check all dead
+    // Check all dead – if every player is dead at the same time, game over
     let allDead = true;
     for (const [, p] of gs.players) {
         if (p.alive) { allDead = false; break; }
     }
     if (allDead) {
-        let anyRespawning = false;
-        for (const [, p] of gs.players) {
-            if (p.respawnTimer > 0 && p.respawnTimer !== Infinity) { anyRespawning = true; break; }
-        }
-        if (!anyRespawning) endGame(room, false);
+        endGame(room, false);
     }
 
     broadcastState(room);
@@ -1026,12 +1022,12 @@ function handleSpawning(gs, room) {
             broadcastToRoom(room, { type: 'chat', name: 'SYSTEM', msg: 'Enemies will arrive in 5 seconds!', color: '#ff4444' });
         }
         if (gs.phaseTimer < 15) return; // Wait 15s before spawning enemies (10s settle + 5s warning)
-        if (gs.phaseEnemiesSpawned >= 15) return; // Max 15 enemies for first wave
+        if (gs.phaseEnemiesSpawned >= 8) return; // Max 8 enemies for first wave
     }
 
     // Custom logic for second phase
     if (gs.phase === 'objective2') {
-        if (gs.phaseEnemiesSpawned >= 45) return; // Max 45 enemies for second wave
+        if (gs.phaseEnemiesSpawned >= 23) return; // Max 23 enemies for second wave
     }
 
     gs.spawnTimer -= DT;
@@ -1041,42 +1037,42 @@ function handleSpawning(gs, room) {
     let spawnMap = 'ship';
     switch (gs.phase) {
         case 'objective1':
-            spawnZone = 'corridor'; count = 2 + Math.floor(Math.random() * 2); interval = 5;
+            spawnZone = 'corridor'; count = 1 + Math.floor(Math.random() * 2); interval = 10;
             break;
         case 'objective2':
-            spawnZone = 'left_3'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
+            spawnZone = 'left_3'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
             break;
         case 'objective3':
         case 'trivia1':
-            spawnZone = 'right_3'; count = 4 + Math.floor(Math.random() * 2); interval = 3;
+            spawnZone = 'right_3'; count = 2 + Math.floor(Math.random() * 2); interval = 6;
             includeElites = true;
             break;
         case 'trivia2':
         case 'objective4':
-            spawnZone = 'planet_left'; count = 5; interval = 4; includeElites = true;
+            spawnZone = 'planet_left'; count = 3; interval = 8; includeElites = true;
             spawnMap = 'planet';
             break;
         case 'trivia3':
         case 'objective5':
-            spawnZone = 'planet_right'; count = 6; interval = 3; includeElites = true;
+            spawnZone = 'planet_right'; count = 3; interval = 6; includeElites = true;
             spawnMap = 'planet';
             break;
         case 'boss':
             return; // Boss handles its own adds
         case 'final':
-            spawnZone = 'engine'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
+            spawnZone = 'engine'; count = 1; interval = 16;
             break;
         default:
             return;
     }
 
     const mapEnemyCount = [...gs.enemies.values()].filter(e => (e.map || 'ship') === spawnMap).length;
-    if (mapEnemyCount > 20) return; // Cap enemies per map
+    if (mapEnemyCount > 10) return; // Cap enemies per map
 
     const points = SPAWN_POINTS[spawnZone] || SPAWN_POINTS.corridor;
     for (let i = 0; i < count; i++) {
-        if (gs.phase === 'objective1' && gs.phaseEnemiesSpawned >= 15) break;
-        if (gs.phase === 'objective2' && gs.phaseEnemiesSpawned >= 45) break;
+        if (gs.phase === 'objective1' && gs.phaseEnemiesSpawned >= 8) break;
+        if (gs.phase === 'objective2' && gs.phaseEnemiesSpawned >= 23) break;
         const sp = points[Math.floor(Math.random() * points.length)];
         const type = includeElites && Math.random() < 0.3 ? 'elite' : 'common';
         spawnEnemy(gs, sp.x + (Math.random() - 0.5) * 40, sp.y + (Math.random() - 0.5) * 40, type, spawnMap);
@@ -1108,6 +1104,7 @@ function spawnBoss(gs) {
 function updateBoss(gs) {
     const boss = gs.boss;
     if (boss.hp <= 0) {
+        gs.events.push({ type: 'bossDeath' });  // triggers shout → death audio on client
         gs.boss = null;
         gs.phase = 'final';
         gs.phaseTimer = 0;

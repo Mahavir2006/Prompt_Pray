@@ -4,6 +4,7 @@ import { ROLE_COLORS, DISCLAIMER_TEXT } from './constants.js';
 import { toggleSpeaker, toggleMic, connectToPeers } from './voicechat.js';
 import { showError } from './ui.js';
 import { connect } from './network.js';
+import { playSFX } from './audio.js';
 
 const lobbyOverlay   = document.getElementById('lobbyOverlay');
 const connectScreen  = document.getElementById('connectScreen');
@@ -43,6 +44,7 @@ export function initLobby() {
     });
 
     document.getElementById('readyBtn').onclick = () => {
+        playSFX('ready');
         if (S.ws) S.ws.send(JSON.stringify({ type: 'ready' }));
     };
 
