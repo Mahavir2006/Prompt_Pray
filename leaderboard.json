@@ -1,5 +1,17 @@
 [
   {
+    "name": "a",
+    "role": "scout",
+    "totalScore": 700,
+    "missionsCompleted": 0,
+    "enemiesKilled": 0,
+    "damageDealt": 260,
+    "healingDone": 0,
+    "repairsDone": 700,
+    "triviaCorrect": 0,
+    "gamesPlayed": 1
+  },
+  {
     "name": "NEXUS",
     "role": "vanguard",
     "totalScore": 385,
@@ -22,6 +34,18 @@
     "repairsDone": 3,
     "triviaCorrect": 7,
     "gamesPlayed": 14
+  },
+  {
+    "name": "s",
+    "role": "engineer",
+    "totalScore": 313,
+    "missionsCompleted": 1,
+    "enemiesKilled": 0,
+    "damageDealt": 0,
+    "healingDone": 0,
+    "repairsDone": 300,
+    "triviaCorrect": 0,
+    "gamesPlayed": 1
   },
   {
     "name": "PULSE",

@@ -48,10 +48,7 @@ export function initInput() {
             if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify({ type: 'devSkipPhase' }));
             e.preventDefault();
         }
-        if (k === 'l') {
-            if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify({ type: 'devWinGame' }));
-            e.preventDefault();
-        }
+
     });
 
     window.addEventListener('keyup', (e) => {
