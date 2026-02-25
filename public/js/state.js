@@ -48,11 +48,15 @@ export const S = {
     triviaData: null,
     terminalOpen: false,
     terminalPhase: '',
+    lastTerminalPhase: '',
     terminalDifficulty: '',
     terminalTime: 0,
     terminalQuestion: null,
     terminalTimerEvent: null,
     triviaAnswered: 0,
+    terminalTriviaCount: 1,
+    terminalTriviaAnswered: 0,
+    usedQuestionIds: [],
 
     // Voice chat
     localStream: null,

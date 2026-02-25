@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -42,6 +43,14 @@ function saveLeaderboard(lb) {
     - Every 5 repairs completed       = +5 pts
     - Each trivia answered correctly  = +5 pts
   • Survival Bonus (alive at end)     = +3 pts
+  
+  CATEGORY ACHIEVEMENTS (Competitive):
+  ───────────────────────────────────────────
+  • Best Combat Role                  = +15 pts (highest damage dealt)
+  • Best Support                      = +15 pts (highest healing + repairs)
+  • Best Trivia Expert                = +15 pts (most trivia answered)
+  • Best Survival                     = +15 pts (alive at end, or filled role best)
+  • MVP of Game                       = +20 pts (highest game score)
   ───────────────────────────────────────────
 */
 function calculatePlayerScore(playerScore, victory, alive) {
@@ -56,11 +65,84 @@ function calculatePlayerScore(playerScore, victory, alive) {
     return pts;
 }
 
-function updateLeaderboard(gs, victory) {
+function awardCategoryBonuses(scores, players) {
+    // Find category winners and award bonuses
+    const categories = {
+        bestCombat: { winner: null, maxVal: -1, bonus: 15 },      // Highest damage
+        bestSupport: { winner: null, maxVal: -1, bonus: 15 },     // Highest healing + repairs
+        bestTrivia: { winner: null, maxVal: -1, bonus: 15 },      // Most trivia correct
+        bestSurvival: { winner: null, maxVal: -1, bonus: 15 },    // Alive + high contribution
+        mvp: { winner: null, maxVal: -1, bonus: 20 }              // Highest game score
+    };
+
+    // Find Best Combat (highest damage)
+    for (const score of scores) {
+        if (score.damageDealt > categories.bestCombat.maxVal) {
+            categories.bestCombat.maxVal = score.damageDealt;
+            categories.bestCombat.winner = score.id;
+        }
+    }
+
+    // Find Best Support (healing + repairs combined)
+    for (const score of scores) {
+        const supportVal = (score.healingDone || 0) + (score.repairsDone || 0);
+        if (supportVal > categories.bestSupport.maxVal) {
+            categories.bestSupport.maxVal = supportVal;
+            categories.bestSupport.winner = score.id;
+        }
+    }
+
+    // Find Best Trivia Expert
+    for (const score of scores) {
+        if ((score.triviaCorrect || 0) > categories.bestTrivia.maxVal) {
+            categories.bestTrivia.maxVal = score.triviaCorrect || 0;
+            categories.bestTrivia.winner = score.id;
+        }
+    }
+
+    // Find Best Survival (alive players with highest contribution, or highest alive status)
+    for (const score of scores) {
+        const player = players.get(score.id);
+        const survivalVal = (player && player.alive ? 1 : 0);
+        if (survivalVal > categories.bestSurvival.maxVal || 
+            (survivalVal === categories.bestSurvival.maxVal && score.earned > scores.find(s => s.id === categories.bestSurvival.winner)?.earned)) {
+            categories.bestSurvival.maxVal = survivalVal;
+            categories.bestSurvival.winner = score.id;
+        }
+    }
+
+    // Find MVP (highest game score)
+    for (const score of scores) {
+        if (score.earned > categories.mvp.maxVal) {
+            categories.mvp.maxVal = score.earned;
+            categories.mvp.winner = score.id;
+        }
+    }
+
+    // Award bonuses to winners
+    const categoryWinners = {};
+    for (const [catName, catData] of Object.entries(categories)) {
+        if (catData.winner !== null) {
+            const winnerScore = scores.find(s => s.id === catData.winner);
+            if (winnerScore) {
+                winnerScore.earned = (winnerScore.earned || 0) + catData.bonus;
+                categoryWinners[catName] = catData.winner;
+            }
+        }
+    }
+
+    return categoryWinners;
+}
+
+function updateLeaderboard(gs, victory, categoryWinners = {}) {
     const lb = loadLeaderboard();
     for (const [, p] of gs.players) {
         const earned = calculatePlayerScore(p.score, victory, p.alive);
         const existing = lb.find(e => e.name === p.name);
+        
+        // Check if this player won any categories
+        const wonCategories = Object.entries(categoryWinners).filter(([_, winnerId]) => winnerId === p.id).map(([catName]) => catName);
+        
         if (existing) {
             existing.totalScore += earned;
             existing.gamesPlayed += 1;
@@ -71,8 +153,14 @@ function updateLeaderboard(gs, victory) {
             existing.repairsDone += Math.round(p.score.repairsDone);
             existing.triviaCorrect += (p.score.triviaCorrect || 0);
             existing.role = p.role; // update to latest role
+            
+            // Track category wins
+            if (!existing.categoryWins) existing.categoryWins = {};
+            wonCategories.forEach(cat => {
+                existing.categoryWins[cat] = (existing.categoryWins[cat] || 0) + 1;
+            });
         } else {
-            lb.push({
+            const newEntry = {
                 name: p.name,
                 role: p.role,
                 totalScore: earned,
@@ -82,8 +170,16 @@ function updateLeaderboard(gs, victory) {
                 healingDone: Math.round(p.score.healingDone),
                 repairsDone: Math.round(p.score.repairsDone),
                 triviaCorrect: p.score.triviaCorrect || 0,
-                gamesPlayed: 1
+                gamesPlayed: 1,
+                categoryWins: {}
+            };
+            
+            // Add category wins
+            wonCategories.forEach(cat => {
+                newEntry.categoryWins[cat] = 1;
             });
+            
+            lb.push(newEntry);
         }
     }
     saveLeaderboard(lb);
@@ -110,16 +206,15 @@ const PROJ_SPEED = 500;
 const INTERACT_RANGE = 80;
 const HEAL_RANGE = 200;
 const RESPAWN_TIME = 5;
+const ORC_DAMAGE_RADIUS = 48; // 0.5 tiles extra attack range for orc attack animation
 
 const ROLES = {
-    vanguard: { hp: 220, damage: 28, range: 55, speed: 200, attackCd: 0.6, projSpeed: 0, description: 'Frontline tank' },
+    vanguard: { hp: 220, damage: 28, range: 103, speed: 200, attackCd: 0.6, projSpeed: 0, description: 'Frontline tank' },
     engineer: { hp: 170, damage: 18, range: 250, speed: 200, attackCd: 0.8, projSpeed: PROJ_SPEED, description: 'Repair specialist' },
     scout: { hp: 140, damage: 22, range: 200, speed: 230, attackCd: 0.4, projSpeed: PROJ_SPEED * 1.2, description: 'Fast attacker' },
     medic: { hp: 160, damage: 10, range: 200, speed: 200, attackCd: 0.7, projSpeed: PROJ_SPEED * 0.8, description: 'Team healer' }
 };
 
-// ── MAP INTEGRATION START ──
-// Walkable zone rectangles for the 1024x1024 spaceship interior map
 const MAP_ZONES = [
     // Cockpit tip (top center)
     { id: 'cockpit', x: 420, y: 40, w: 184, h: 120 },
@@ -148,7 +243,6 @@ const MAP_ZONES = [
     { id: 'wing_right', x: 964, y: 430, w: 55, h: 100 },
 ];
 
-const fs = require('fs');
 // Dynamically load precise OBSTACLES from Tiled JSON
 const OBSTACLES = [];
 try {
@@ -295,17 +389,17 @@ const PLANET_SPAWN = { x: 768 * PLANET_SCALE, y: 816 * PLANET_SCALE };
 const SHIP_RETURN_SPAWN = { x: 512 * MAP_SCALE, y: 950 * MAP_SCALE };
 
 const OBJECTIVES = [
-    { phase: 'objective1', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, repairTime: 5, desc: 'Stabilize Core System (Hold E)', zone: 'cockpit_room', map: 'ship', isTrivia: false },
-    { phase: 'trivia_core', x: 512 * MAP_SCALE, y: 200 * MAP_SCALE, desc: 'Confirm Core Stabilization (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15 },
-    { phase: 'objective2', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 5, desc: 'Restore Left Grid (Hold E)', zone: 'left_3', map: 'ship', isTrivia: false },
-    { phase: 'trivia_left', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, desc: 'Confirm Left Grid (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15 },
-    { phase: 'objective3', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 5, desc: 'Restore Right Grid (Hold E)', zone: 'right_3', map: 'ship', isTrivia: false },
-    { phase: 'trivia_right', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, desc: 'Confirm Right Grid (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15 },
-    { phase: 'trivia1', x: 512 * MAP_SCALE, y: 870 * MAP_SCALE, desc: 'Unlock Airlock (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15 },
-    { phase: 'trivia2', x: 400 * PLANET_SCALE, y: 240 * PLANET_SCALE, desc: 'Left Exoplanet Node (Press E)', map: 'planet', isTrivia: true, difficulty: 'medium', time: 10 },
-    { phase: 'objective4', x: 400 * PLANET_SCALE, y: 240 * PLANET_SCALE, repairTime: 5, desc: 'Repair Left Node (Hold E)', zone: 'planet_left', map: 'planet', isTrivia: false },
-    { phase: 'trivia3', x: 1350 * PLANET_SCALE, y: 280 * PLANET_SCALE, desc: 'Right Exoplanet Node (Press E)', map: 'planet', isTrivia: true, difficulty: 'hard', time: 8 },
-    { phase: 'objective5', x: 1350 * PLANET_SCALE, y: 280 * PLANET_SCALE, repairTime: 5, desc: 'Repair Right Node (Hold E)', zone: 'planet_right', map: 'planet', isTrivia: false }
+    // Wave 1: First task (10s engineer, 15s others)
+    { phase: 'objective1', x: 512 * MAP_SCALE, y: 500 * MAP_SCALE, repairTime: 10, engineerTime: 10, otherTime: 15, desc: 'Initialize Systems (Hold E)', zone: 'corridor', map: 'ship', isTrivia: false },
+    // Wave 1: 3 trivia questions
+    { phase: 'trivia_wave1_1', x: 512 * MAP_SCALE, y: 870 * MAP_SCALE, desc: 'Authentication Terminal 1 (Press E)', map: 'ship', isTrivia: true, difficulty: 'easy', time: 15, triviaCount: 3 },
+    // Wave 2: Left and Right shuttle repair (18s engineer, 30s others)
+    { phase: 'objective2_left', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 30, engineerTime: 18, otherTime: 30, desc: 'Repair Left Shuttle (Hold E)', zone: 'left_3', map: 'ship', isTrivia: false },
+    { phase: 'objective2_right', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 30, engineerTime: 18, otherTime: 30, desc: 'Repair Right Shuttle (Hold E)', zone: 'right_3', map: 'ship', isTrivia: false },
+    // Exoplanet: 10 trivia questions at top left
+    { phase: 'trivia_planet_top', x: 400 * PLANET_SCALE, y: 240 * PLANET_SCALE, desc: 'Left Node Terminal (Press E)', map: 'planet', isTrivia: true, difficulty: 'medium', time: 15, triviaCount: 10 },
+    // Exoplanet: Communication task at bottom right (30s engineer, 45s others)
+    { phase: 'objective3', x: 1350 * PLANET_SCALE, y: 800 * PLANET_SCALE, repairTime: 45, engineerTime: 30, otherTime: 45, desc: 'Communication Array (Hold E)', zone: 'planet_right', map: 'planet', isTrivia: false }
 ];
 
 const SPAWN_POINTS = {
@@ -652,7 +746,7 @@ function gameTick(room) {
     if (gs.phase === 'intro' && gs.phaseTimer >= 15) {
         gs.phase = 'objective1';
         gs.phaseTimer = 0;
-        gs.events.push({ type: 'announcement', text: 'STABILIZE THE CORE SYSTEM', duration: 3 });
+        gs.events.push({ type: 'announcement', text: 'BEGIN INITIALIZATION SEQUENCE', duration: 3 });
     }
 
     // Process all players
@@ -986,8 +1080,8 @@ function updateEnemies(gs) {
 
         constrainToMap(gs, enemy, enemy.type === 'elite' ? ELITE_RADIUS : ENEMY_RADIUS);
 
-        // Attack
-        if (minDist < PLAYER_RADIUS + (enemy.type === 'elite' ? ELITE_RADIUS : ENEMY_RADIUS) + 5) {
+        // Attack - include 0.5 tile damage radius
+        if (minDist < PLAYER_RADIUS + (enemy.type === 'elite' ? ELITE_RADIUS : ENEMY_RADIUS) + ORC_DAMAGE_RADIUS) {
             enemy.attackCd -= DT;
             if (enemy.attackCd <= 0) {
                 const dmg = enemy.damage;
@@ -1003,6 +1097,8 @@ function updateEnemies(gs) {
                     target.respawnTimer = RESPAWN_TIME;
                 }
                 enemy.attackCd = 1.0;
+                enemy.attacking = true; // Set attacking to true
+                setTimeout(() => { enemy.attacking = false; }, 800); // Reset after 0.8s
             }
         }
     }
@@ -1039,24 +1135,23 @@ function spawnEnemy(gs, x, y, type, mapName = 'ship') {
 function handleSpawning(gs, room) {
     if (gs.phase === 'cinematic' || gs.phase === 'intro') return;
 
-    // Custom logic for first phase
+    // Wave 1: First task with 12 enemies
     if (gs.phase === 'objective1') {
         if (gs.phaseTimer >= 10 && !gs.phaseWarningSent) {
             gs.phaseWarningSent = true;
-            broadcastToRoom(room, { type: 'chat', name: 'SYSTEM', msg: 'Enemies will arrive in 5 seconds!', color: '#ff4444' });
+            broadcastToRoom(room, { type: 'chat', name: 'SYSTEM', msg: 'Enemies arriving in 5 seconds!', color: '#ff4444' });
         }
-        if (gs.phaseTimer < 15) return; // Wait 15s before spawning enemies (10s settle + 5s warning)
-        if (gs.phaseEnemiesSpawned >= 8) return; // Max 8 enemies for first wave
+        if (gs.phaseEnemiesSpawned >= 12) return; // Max 12 enemies for wave 1
     }
 
-    // Custom logic for second phase
-    if (gs.phase === 'objective2') {
-        if (gs.phaseEnemiesSpawned >= 23) return; // Max 23 enemies for second wave
+    // Wave 2: Left/Right shuttle with 18 enemies (ORC2 - elite type)
+    if (gs.phase === 'objective2_left' || gs.phase === 'objective2_right') {
+        if (gs.phaseEnemiesSpawned >= 18) return; // Max 18 enemies for wave 2
     }
 
-    // Custom logic for third phase (wave 3)
-    if (gs.phase === 'objective3') {
-        if (gs.phaseEnemiesSpawned >= 36) return; // Max 36 enemies for third wave
+    // Exoplanet wave: Small number during trivia sections
+    if (gs.phase === 'trivia_planet_top') {
+        if (gs.phaseEnemiesSpawned >= 6) return;
     }
 
     gs.spawnTimer -= DT;
@@ -1066,39 +1161,38 @@ function handleSpawning(gs, room) {
     let spawnMap = 'ship';
     switch (gs.phase) {
         case 'objective1':
-            // Task in Cockpit (Top), spawn at Engine (Bottom)
-            spawnZone = 'engine'; count = 1 + Math.floor(Math.random() * 2); interval = 10;
+            // Wave 1: Spawn enemies during task
+            spawnZone = 'engine'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
             break;
-        case 'objective2':
-            // Task on Left side, spawn on Right side
-            spawnZone = 'right_3'; count = 1 + Math.floor(Math.random() * 2); interval = 8;
+        case 'trivia_wave1_1':
+            // After objective1, spawn a few more for the trivia section
+            if (gs.phaseEnemiesSpawned >= 2) return;
+            spawnZone = 'engine'; count = 1; interval = 12;
             break;
-        case 'objective3':
-            // Task on Right side, spawn on Left side (and maybe Engine)
-            spawnZone = Math.random() < 0.5 ? 'left_3' : 'engine'; count = 3 + Math.floor(Math.random() * 2); interval = 4;
+        case 'objective2_left':
+            // Wave 2: Spawn ORC2 elites on right side
+            spawnZone = 'right_3'; count = 2; interval = 6;
             includeElites = true;
             break;
-        case 'trivia1':
-            // Task at Airlock/Engine (Bottom), spawn at Cockpit (Top)
-            spawnZone = 'cockpit_room'; count = 2 + Math.floor(Math.random() * 2); interval = 6;
+        case 'objective2_right':
+            // Wave 2 continues: Spawn ORC2 elites
+            spawnZone = Math.random() < 0.5 ? 'left_3' : 'engine'; count = 2; interval = 6;
             includeElites = true;
             break;
-        case 'trivia2':
-        case 'objective4':
-            // Task on Planet Left, spawn on Planet Right
-            spawnZone = 'planet_right'; count = 3; interval = 8; includeElites = true;
+        case 'trivia_planet_top':
+            // Exoplanet trivia section - light enemy presence
+            spawnZone = 'planet_right'; count = 1; interval = 10; includeElites = true;
             spawnMap = 'planet';
             break;
-        case 'trivia3':
-        case 'objective5':
-            // Task on Planet Right, spawn on Planet Left
-            spawnZone = 'planet_left'; count = 3; interval = 6; includeElites = true;
+        case 'objective3':
+            // Communication task - final waves
+            spawnZone = 'planet_left'; count = 1; interval = 8; includeElites = true;
             spawnMap = 'planet';
             break;
         case 'boss':
             return; // Boss handles its own adds
         case 'final':
-            // Task is escaping back to ship or escaping, spawn around
+            // Task is escaping back to ship
             spawnZone = 'wave3'; count = 1; interval = 16;
             break;
         default:
@@ -1106,18 +1200,17 @@ function handleSpawning(gs, room) {
     }
 
     const mapEnemyCount = [...gs.enemies.values()].filter(e => (e.map || 'ship') === spawnMap).length;
-    const maxOnMap = gs.phase === 'objective3' ? 18 : 10; // allow more concurrent enemies in wave 3
+    const maxOnMap = gs.phase.includes('objective2') ? 20 : 12; // allow more concurrent enemies in wave 2
     if (mapEnemyCount > maxOnMap) return; // Cap enemies per map
 
     const points = SPAWN_POINTS[spawnZone] || SPAWN_POINTS.corridor;
     for (let i = 0; i < count; i++) {
-        if (gs.phase === 'objective1' && gs.phaseEnemiesSpawned >= 8) break;
-        if (gs.phase === 'objective2' && gs.phaseEnemiesSpawned >= 23) break;
-        if (gs.phase === 'objective3' && gs.phaseEnemiesSpawned >= 36) break;
+        if (gs.phase === 'objective1' && gs.phaseEnemiesSpawned >= 12) break;
+        if (gs.phase.includes('objective2') && gs.phaseEnemiesSpawned >= 18) break;
         const sp = points[Math.floor(Math.random() * points.length)];
-        const type = includeElites && Math.random() < 0.3 ? 'elite' : 'common';
+        const type = includeElites && Math.random() < 0.5 ? 'elite' : 'common';
         spawnEnemy(gs, sp.x + (Math.random() - 0.5) * 40, sp.y + (Math.random() - 0.5) * 40, type, spawnMap);
-        gs.phaseEnemiesSpawned++; // Track for all phases
+        gs.phaseEnemiesSpawned++;
     }
     gs.spawnTimer = interval;
 }
@@ -1402,12 +1495,9 @@ function damageEnemy(gs, enemy, amount, player) {
 // ======================== OBJECTIVES ========================
 function handleObjective(gs, room) {
     const phaseToObj = {
-        objective1: 0, trivia_core: 1,
-        objective2: 2, trivia_left: 3,
-        objective3: 4, trivia_right: 5,
-        trivia1: 6, trivia2: 7,
-        objective4: 8, trivia3: 9,
-        objective5: 10,
+        objective1: 0, trivia_wave1_1: 1,
+        objective2_left: 2, objective2_right: 3,
+        trivia_planet_top: 4, objective3: 5,
         final: -1, boss: -1
     };
     const objIdx = phaseToObj[gs.phase];
@@ -1424,7 +1514,7 @@ function handleObjective(gs, room) {
                 // Single E tap detection
                 if (player.justInteracted && !player.triviaLocked && timeNow > (player.triviaCooldown || 0)) {
                     player.triviaLocked = true;
-                    gs.events.push({ type: 'startTrivia', playerId: player.id, difficulty: obj.difficulty, timeLimit: obj.time, phase: gs.phase });
+                    gs.events.push({ type: 'startTrivia', playerId: player.id, difficulty: obj.difficulty, timeLimit: obj.time, phase: gs.phase, triviaCount: obj.triviaCount || 1 });
                 }
             }
         }
@@ -1438,24 +1528,12 @@ function handleObjective(gs, room) {
         const d = distance(player, obj);
         if (d > INTERACT_RANGE) continue;
 
-        // Different timings for different objectives
-        if (gs.phase === 'objective2') {
-            if (player.role === 'engineer') {
-                repairSpeed += 1 / 45; // 45 seconds for engineer
-                player.score.repairsDone += DT;
-            } else {
-                repairSpeed += 1 / 75; // 1 min 15 seconds (75s) for others
-                player.score.repairsDone += DT * (45 / 75);
-            }
-        } else {
-            // Default timings (Objective 1, 3, etc.)
-            if (player.role === 'engineer') {
-                repairSpeed += 1 / 30; // 30 seconds for engineer
-                player.score.repairsDone += DT;
-            } else {
-                repairSpeed += 1 / 45; // 45 seconds for others
-                player.score.repairsDone += DT * (30 / 45);
-            }
+        // Use engineerTime and otherTime from objective definition
+        const isEngineer = player.role === 'engineer';
+        const requiredTime = isEngineer ? obj.engineerTime : obj.otherTime;
+        if (requiredTime) {
+            repairSpeed += 1 / requiredTime;
+            player.score.repairsDone += DT;
         }
     }
 
@@ -1483,61 +1561,41 @@ function completeObjective(gs, room) {
 
     switch (gs.phase) {
         case 'objective1':
-            gs.phase = 'trivia_core';
+            gs.phase = 'trivia_wave1_1';
             gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'CORE STABILIZED! AUTHENTICATE AT TERMINAL!', duration: 3, color: '#06d6a0' });
+            gs.events.push({ type: 'announcement', text: 'SYSTEMS INITIALIZED! ANSWER SECURITY QUESTIONS!', duration: 3, color: '#06d6a0' });
             break;
-        case 'trivia_core':
-            gs.phase = 'objective2';
+        case 'trivia_wave1_1':
+            // After 3 trivia questions, move to wave 2
+            gs.phase = 'objective2_left';
             gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'CORE AUTHENTICATED! PROCEED TO LEFT GRID!', duration: 3, color: '#06d6a0' });
+            gs.events.push({ type: 'announcement', text: 'AUTHORIZATION COMPLETE! REPAIR SHUTTLE SYSTEMS!', duration: 3, color: '#06d6a0' });
             break;
-        case 'objective2':
-            gs.phase = 'trivia_left';
+        case 'objective2_left':
+            // Left shuttle done, move to right
+            gs.phase = 'objective2_right';
             gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'LEFT GRID ACTIVE! AUTHENTICATE AT TERMINAL!', duration: 3, color: '#ffd166' });
+            gs.events.push({ type: 'announcement', text: 'LEFT SHUTTLE REPAIRED! PROCEED TO RIGHT!', duration: 3, color: '#ffd166' });
             break;
-        case 'trivia_left':
+        case 'objective2_right':
+            // Both shuttles done, proceed to planet
+            gs.phase = 'trivia_planet_top';
+            gs.phaseTimer = 0;
+            gs.events.push({ type: 'announcement', text: 'SHUTTLES READY! HEADING TO EXOPLANET!', duration: 3, color: '#06d6a0' });
+            break;
+        case 'trivia_planet_top':
+            // After 10 trivia questions on planet, move to communication task
             gs.phase = 'objective3';
             gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'LEFT GRID AUTHENTICATED! PROCEED TO RIGHT GRID!', duration: 3, color: '#ffd166' });
+            gs.events.push({ type: 'announcement', text: 'DATA COLLECTED! RESTORING COMMUNICATION!', duration: 3, color: '#00ffff' });
             break;
         case 'objective3':
-            gs.phase = 'trivia_right';
-            gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'RIGHT GRID ACTIVE! AUTHENTICATE AT TERMINAL!', duration: 4, color: '#ffb703' });
-            break;
-        case 'trivia_right':
-            gs.phase = 'trivia1';
-            gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'RIGHT GRID AUTHENTICATED! UNLOCK AIRLOCK!', duration: 4, color: '#ffb703' });
-            break;
-        case 'trivia1':
-            gs.doorUnlocked = true;
-            gs.phase = 'trivia2';
-            gs.events.push({ type: 'announcement', text: 'AIRLOCK UNLOCKED! PROCEED TO EXOPLANET!', duration: 5, color: '#00ffff' });
-            break;
-        case 'trivia2':
-            gs.phase = 'objective4';
-            gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'LEFT TERMINAL ACCESSED! REPAIR THE NODE!', duration: 5, color: '#00ffff' });
-            break;
-        case 'objective4':
-            gs.phase = 'trivia3';
-            gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'LEFT NODE REPAIRED! PROCEED TO RIGHT NODE!', duration: 5, color: '#00ffff' });
-            break;
-        case 'trivia3':
-            gs.phase = 'objective5';
-            gs.phaseTimer = 0;
-            gs.events.push({ type: 'announcement', text: 'RIGHT TERMINAL ACCESSED! REPAIR THE NODE!', duration: 5, color: '#00ffff' });
-            break;
-        case 'objective5':
+            // Communication task done, spawn boss
             gs.phase = 'boss';
             spawnBoss(gs);
             gs.enemies.clear();
             gs.events.push({ type: 'bossSpawn' });
-            gs.events.push({ type: 'announcement', text: 'ALL NODES SECURED! BOSS APPROACHING!', duration: 5, color: '#ff0000' });
+            gs.events.push({ type: 'announcement', text: 'COMMUNICATION RESTORED! BOSS INCOMING!', duration: 5, color: '#ff0000' });
             break;
 
         case 'boss':
@@ -1633,21 +1691,9 @@ function constrainToMap(gs, entity, r = PLAYER_RADIUS) {
 }
 
 function respawnPlayer(gs, player) {
-    const role = ROLES[player.role];
-    player.alive = true;
-    player.hp = Math.floor(role.hp * 0.5);
-
-    // Respawn correctly based on their current map dimension scale points
-    if (player.currentMap === 'planet') {
-        player.x = 400 * PLANET_SCALE;
-        player.y = 880 * PLANET_SCALE;
-    } else {
-        // Default ship respawn
-        player.x = 512 * MAP_SCALE + (Math.random() - 0.5) * 40;
-        player.y = 700 * MAP_SCALE + (Math.random() - 0.5) * 40;
-    }
-
-    player.attackCd = 0;
+    // NO RESPAWNING - Player enters spectate mode
+    // They remain non-functional for the rest of the game
+    player.spectating = true;
 }
 
 function endGame(room, victory) {
@@ -1660,12 +1706,16 @@ function endGame(room, victory) {
         const earned = calculatePlayerScore(p.score, victory, p.alive);
         scores.push({ id: p.id, name: p.name, role: p.role, earned, ...p.score });
     }
+    
+    // Award category bonuses
+    const categoryWinners = awardCategoryBonuses(scores, gs.players);
+    
     scores.sort((a, b) => b.earned - a.earned);
 
     // Save to leaderboard
-    try { updateLeaderboard(gs, victory); } catch (e) { console.error('Leaderboard save error:', e); }
+    try { updateLeaderboard(gs, victory, categoryWinners); } catch (e) { console.error('Leaderboard save error:', e); }
 
-    broadcastToRoom(room, { type: 'gameOver', victory, scores, timeRemaining: gs.timer });
+    broadcastToRoom(room, { type: 'gameOver', victory, scores, categoryWinners, timeRemaining: gs.timer });
 
     if (room.tickInterval) {
         clearInterval(room.tickInterval);
@@ -1711,12 +1761,9 @@ function broadcastState(room) {
     }
 
     const phaseToObj = {
-        objective1: 0, trivia_core: 1,
-        objective2: 2, trivia_left: 3,
-        objective3: 4, trivia_right: 5,
-        trivia1: 6, trivia2: 7,
-        objective4: 8, trivia3: 9,
-        objective5: 10,
+        objective1: 0, trivia_wave1_1: 1,
+        objective2_left: 2, objective2_right: 3,
+        trivia_planet_top: 4, objective3: 5,
         final: -1, boss: -1
     };
     const currentObj = phaseToObj[gs.phase] >= 0 ? phaseToObj[gs.phase] : undefined;
@@ -1861,10 +1908,30 @@ wss.on('connection', (ws) => {
                 gsPlayer.triviaLocked = false;
                 if (msg.success) {
                     gsPlayer.score.triviaCorrect += 1;
-                    // Only advance phase if still on the same trivia phase (prevent multi-player skip)
-                    const triviaPhases = ['trivia_core', 'trivia_left', 'trivia_right', 'trivia1', 'trivia2', 'trivia3'];
-                    if (triviaPhases.includes(gs.phase)) {
-                        completeObjective(gs, currentRoom);
+                    
+                    // Get the current objective to check how many trivia questions are needed
+                    const phaseToObj = {
+                        objective1: 0, trivia_wave1_1: 1,
+                        objective2_left: 2, objective2_right: 3,
+                        trivia_planet_top: 4, objective3: 5,
+                        final: -1, boss: -1
+                    };
+                    const objIdx = phaseToObj[gs.phase];
+                    const triviaRequired = objIdx >= 0 ? (OBJECTIVES[objIdx].triviaCount || 1) : 1;
+                    
+                    // Initialize trivia counter if needed
+                    if (!gsPlayer.triviaAnswered) {
+                        gsPlayer.triviaAnswered = 0;
+                    }
+                    gsPlayer.triviaAnswered++;
+                    
+                    // Only advance phase if enough trivia questions have been answered
+                    if (gsPlayer.triviaAnswered >= triviaRequired) {
+                        gsPlayer.triviaAnswered = 0; // Reset for next trivia phase
+                        const triviaPhases = ['trivia_wave1_1', 'trivia_planet_top'];
+                        if (triviaPhases.includes(gs.phase)) {
+                            completeObjective(gs, currentRoom);
+                        }
                     }
                 } else {
                     gsPlayer.triviaCooldown = Date.now() + 5000;

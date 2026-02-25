@@ -82,6 +82,11 @@ export function initInput() {
     // 20Hz input send
     setInterval(() => {
         if (!S.ws || S.ws.readyState !== 1 || S.screenPhase !== 'game' || !S.gameState) return;
+        
+        // Don't send input if player is dead (spectating)
+        const me = S.gameState.players.find(p => p.id === S.myId);
+        if (me && !me.alive) return;
+        
         const worldMouseX = S.mouseX + S.camX - S.canvas.width / 2;
         const worldMouseY = S.mouseY + S.camY - S.canvas.height / 2;
         S.ws.send(JSON.stringify({

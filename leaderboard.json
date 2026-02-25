@@ -24,6 +24,18 @@
     "gamesPlayed": 15
   },
   {
+    "name": "p",
+    "role": "vanguard",
+    "totalScore": 355,
+    "missionsCompleted": 0,
+    "enemiesKilled": 50,
+    "damageDealt": 6312,
+    "healingDone": 0,
+    "repairsDone": 225,
+    "triviaCorrect": 4,
+    "gamesPlayed": 1
+  },
+  {
     "name": "CIPHER",
     "role": "scout",
     "totalScore": 340,
@@ -538,5 +550,43 @@
     "repairsDone": 3,
     "triviaCorrect": 0,
     "gamesPlayed": 1
+  },
+  {
+    "name": "percy",
+    "role": "vanguard",
+    "totalScore": 5,
+    "missionsCompleted": 0,
+    "enemiesKilled": 2,
+    "damageDealt": 168,
+    "healingDone": 0,
+    "repairsDone": 5,
+    "triviaCorrect": 0,
+    "gamesPlayed": 1,
+    "categoryWins": {
+      "bestCombat": 1,
+      "bestSupport": 1,
+      "bestTrivia": 1,
+      "bestSurvival": 1,
+      "mvp": 1
+    }
+  },
+  {
+    "name": "o",
+    "role": "engineer",
+    "totalScore": 5,
+    "missionsCompleted": 0,
+    "enemiesKilled": 0,
+    "damageDealt": 0,
+    "healingDone": 0,
+    "repairsDone": 8,
+    "triviaCorrect": 0,
+    "gamesPlayed": 1,
+    "categoryWins": {
+      "bestCombat": 1,
+      "bestSupport": 1,
+      "bestTrivia": 1,
+      "bestSurvival": 1,
+      "mvp": 1
+    }
   }
 ]

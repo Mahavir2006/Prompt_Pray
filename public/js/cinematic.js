@@ -56,17 +56,25 @@ export function renderCinematic(dt) {
         ctx.beginPath(); ctx.arc(earthX, earthY, earthR + 25, 0, Math.PI * 2); ctx.fill();
 
         const earthGrad = ctx.createRadialGradient(earthX - 10, earthY - 10, 5, earthX, earthY, earthR);
-        earthGrad.addColorStop(0, '#2a7fff');
-        earthGrad.addColorStop(0.5, '#1a5fd0');
-        earthGrad.addColorStop(1, '#0a2a60');
+        earthGrad.addColorStop(0, '#3a8fff');
+        earthGrad.addColorStop(0.5, '#2a7fdd');
+        earthGrad.addColorStop(1, '#1a4fa0');
         ctx.fillStyle = earthGrad;
         ctx.beginPath(); ctx.arc(earthX, earthY, earthR, 0, Math.PI * 2); ctx.fill();
 
-        ctx.fillStyle = 'rgba(34, 139, 34, 0.4)';
-        ctx.beginPath(); ctx.arc(earthX - 8, earthY - 10, earthR * 0.35, 0.2, 1.8); ctx.fill();
-        ctx.beginPath(); ctx.arc(earthX + 12, earthY + 5, earthR * 0.25, 0.5, 2.5); ctx.fill();
+        // Continents - more realistic placement
+        ctx.fillStyle = 'rgba(60, 120, 40, 0.6)';
+        ctx.beginPath(); ctx.arc(earthX - 12, earthY - 8, earthR * 0.4, 0.1, 1.6); ctx.fill();
+        ctx.beginPath(); ctx.arc(earthX + 10, earthY + 6, earthR * 0.3, 0.8, 2.8); ctx.fill();
+        ctx.beginPath(); ctx.arc(earthX - 5, earthY + 12, earthR * 0.25, 1.2, 3.0); ctx.fill();
 
-        ctx.strokeStyle = 'rgba(100, 200, 255, 0.25)';
+        // Cloud patterns
+        ctx.fillStyle = 'rgba(220, 235, 255, 0.4)';
+        ctx.beginPath(); ctx.arc(earthX - 8, earthY - 5, earthR * 0.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(earthX + 6, earthY - 10, earthR * 0.15, 0, Math.PI * 2); ctx.fill();
+
+        // Atmospheric glow
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.35)';
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(earthX, earthY, earthR + 3, 0, Math.PI * 2); ctx.stroke();
 
@@ -99,20 +107,20 @@ export function renderCinematic(dt) {
         ctx.beginPath(); ctx.arc(planetX, planetY, planetR * 1.3, 0, Math.PI * 2); ctx.fill();
 
         const planetGrad = ctx.createRadialGradient(planetX - planetR * 0.3, planetY - planetR * 0.3, planetR * 0.1, planetX, planetY, planetR);
-        planetGrad.addColorStop(0, '#4a2a6a');
-        planetGrad.addColorStop(0.6, '#2a1544');
-        planetGrad.addColorStop(1, '#100a20');
+        planetGrad.addColorStop(0, '#ff9933');
+        planetGrad.addColorStop(0.6, '#dd6611');
+        planetGrad.addColorStop(1, '#884422');
         ctx.fillStyle = planetGrad;
         ctx.beginPath(); ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2); ctx.fill();
 
         ctx.globalAlpha = 0.15;
-        ctx.fillStyle = '#6a3a9a';
+        ctx.fillStyle = '#ff7722';
         ctx.beginPath(); ctx.arc(planetX - planetR * 0.2, planetY + planetR * 0.1, planetR * 0.15, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#3a1a5a';
+        ctx.fillStyle = '#cc4411';
         ctx.beginPath(); ctx.arc(planetX + planetR * 0.3, planetY - planetR * 0.2, planetR * 0.1, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
 
-        ctx.strokeStyle = `rgba(140, 80, 200, ${0.2 + progress * 0.2})`;
+        ctx.strokeStyle = `rgba(200, 100, 50, ${0.2 + progress * 0.2})`;
         ctx.lineWidth = 3;
         ctx.beginPath(); ctx.arc(planetX, planetY, planetR + 4, 0, Math.PI * 2); ctx.stroke();
 
@@ -173,10 +181,10 @@ export function renderCinematic(dt) {
         ctx.font = '22px Orbitron';
         ctx.textAlign = 'center';
         ctx.globalAlpha = Math.max(0, 1 - progress * 2);
-        ctx.fillText('CRASH LANDING DETECTED', W / 2, H / 2 - 10);
+        ctx.fillText('EMERGENCY LANDING IN PROGRESS', W / 2, H / 2 - 10);
         ctx.font = '13px Rajdhani';
         ctx.fillStyle = '#ff6b6b';
-        ctx.fillText('ALL SYSTEMS CRITICAL — INITIATE EMERGENCY PROTOCOL', W / 2, H / 2 + 20);
+        ctx.fillText('BRACE FOR IMPACT — SURVIVAL MODE ACTIVATED', W / 2, H / 2 + 20);
         ctx.globalAlpha = 1;
     }
 

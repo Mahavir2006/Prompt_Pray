@@ -72,6 +72,7 @@ export function showDisclaimer(callback) {
     const textEl = document.getElementById('disclaimerText');
     const guidelinesBox = document.getElementById('guidelinesBox');
     const continueBtn = document.getElementById('disclaimerContinueBtn');
+    const skipBtn = document.getElementById('disclaimerSkipBtn');
 
     textEl.innerHTML = '<span class="cursor-blink"></span>';
     guidelinesBox.style.display = 'none';
@@ -104,6 +105,13 @@ export function showDisclaimer(callback) {
             guidelinesBox.style.display = 'block';
             setTimeout(() => { continueBtn.style.display = 'inline-block'; }, 300);
         }
+    };
+
+    skipBtn.style.display = 'inline-block';
+    skipBtn.onclick = () => {
+        clearInterval(typeInterval);
+        disclaimerOverlay.style.display = 'none';
+        callback();
     };
 
     continueBtn.onclick = () => {

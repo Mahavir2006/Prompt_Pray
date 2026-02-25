@@ -72,6 +72,8 @@ function handleMessage(msg) {
             hud.style.display = 'none';
             S.cinematicTimer = 0;
             S.triviaAnswered = 0;
+            S.terminalTriviaAnswered = 0;
+            S.terminalTriviaCount = 1;
             S.cinematicPlayed = false;
             wasAlive = true;
             lowHealthPlayed = false;
@@ -91,6 +93,7 @@ function handleMessage(msg) {
 
             if (S.screenPhase === 'cinematic' && S.cinematicPlayed) {
                 S.screenPhase = 'game';
+                S.usedQuestionIds = []; // Reset trivia questions for new game
                 hud.style.display = 'block';
             }
 
@@ -206,7 +209,7 @@ function processEvent(evt) {
         }
         case 'startTrivia':
             if (evt.playerId === S.myId) {
-                startTrivia(evt.difficulty, evt.timeLimit, evt.phase);
+                startTrivia(evt.difficulty, evt.timeLimit, evt.phase, evt.triviaCount);
             }
             break;
         case 'bossDeath':

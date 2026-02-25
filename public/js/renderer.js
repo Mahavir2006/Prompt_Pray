@@ -8,7 +8,7 @@ import {
 import {
     roleSprites, orcSprites, spearImg, gunImg, medboxImg, bulletImg,
     mapBgImage, planetBgImage,
-    getOrcDirRow, getEnemyAnim, getAnimState, angleToDir
+    getOrcDirRow, getOrcDirection, getEnemyAnim, getAnimState, angleToDir
 } from './assets.js';
 import { updateCamera, worldToScreen } from './camera.js';
 import { renderCinematic } from './cinematic.js';
@@ -314,7 +314,7 @@ function drawPlayers(dt) {
                 ctx.fillStyle = '#fff';
                 ctx.font = '12px Orbitron';
                 ctx.textAlign = 'center';
-                ctx.fillText(p.respawnTimer.toFixed(1) + 's', s.x, s.y + 4);
+                ctx.fillText('SPECTATING', s.x, s.y + 4);
             }
             continue;
         }
@@ -637,7 +637,7 @@ function drawEnemies() {
         const r = isElite ? 22 : 16;
 
         const orcKey = e.orcType || 'orc1';
-        const sheets = orcSprites[orcKey] || orcSprites.orc1;
+        const frames = orcSprites[orcKey] || orcSprites.orc1;
         const anim = getEnemyAnim(e.id);
 
         const dx = e.x - (anim.prevX || e.x);
@@ -646,7 +646,7 @@ function drawEnemies() {
         anim.prevX = e.x;
         anim.prevY = e.y;
 
-        const dirRow = getOrcDirRow(dx, dy);
+        const direction = getOrcDirection(dx, dy);
 
         anim.timer += 0.016;
         if (anim.timer >= 0.1) {
@@ -671,20 +671,31 @@ function drawEnemies() {
         } else {
             action = isMoving ? (isElite && Math.abs(dx) + Math.abs(dy) > 3 ? 'run' : 'walk') : 'idle';
         }
-        const sheet = sheets[action] || sheets[isMoving ? 'walk' : 'idle'];
-        const maxFrames = ORC_FRAME_COUNTS[action] || ORC_FRAME_COUNTS['idle'];
-        const frameIdx = anim.frame % maxFrames;
+        
+        const actionFrames = frames[action] || frames[isMoving ? 'walk' : 'idle'];
+        if (!actionFrames) {
+            console.warn(`No frames for action ${action}`, { action, frames });
+        }
+        const dirFrames = actionFrames ? (actionFrames[direction] || actionFrames['south']) : null;
+        if (!dirFrames || !dirFrames.length) {
+            console.warn(`No frames for direction ${direction}`, { direction, actionFrames, orcKey, action });
+        }
+        const maxFrames = dirFrames ? dirFrames.length : 0;
+        const frameIdx = anim.frame % (maxFrames || 1);
+        const frameImg = dirFrames ? dirFrames[frameIdx] : null;
 
-        if (sheet && sheet.complete && sheet.naturalWidth > 0) {
-            const sx = frameIdx * ORC_FRAME;
-            const sy = dirRow * ORC_FRAME;
+        if (!frameImg) {
+            console.warn(`Missing frame for ${orcKey} ${action} ${direction} index ${frameIdx}`, { frameIdx, maxFrames, dirFrames });
+        }
+
+        if (frameImg && frameImg.complete && frameImg.naturalWidth > 0) {
             const orcScale = isElite ? 2.2 : 1.8;
             const dW = ORC_FRAME * orcScale;
             const dH = ORC_FRAME * orcScale;
             ctx.save();
             ctx.translate(s.x, s.y);
             ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(sheet, sx, sy, ORC_FRAME, ORC_FRAME, -dW / 2, -dH / 2, dW, dH);
+            ctx.drawImage(frameImg, -dW / 2, -dH / 2, dW, dH);
 
             // White hit-flash overlay
             if (anim.hitFlash > 0) {

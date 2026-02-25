@@ -10,7 +10,10 @@ export function loadImg(src) {
     const img = new Image();
     img.src = src;
     img.onload = () => spritesLoaded++;
-    img.onerror = () => { console.warn('Missing sprite:', src); spritesLoaded++; };
+    img.onerror = () => {
+        console.error(`✗ Failed to load sprite: ${src}`);
+        spritesLoaded++;
+    };
     return img;
 }
 
@@ -60,26 +63,46 @@ for (let i = 0; i < 12; i++) dogSprites.walk.push(loadImg(`/assets/dog/walk/fram
 for (let i = 0; i < 8; i++) dogSprites.attack.push(loadImg(`/assets/dog/attack/frame_${String(i).padStart(3, '0')}.png`));
 for (let i = 0; i < 5; i++) dogSprites.death.push(loadImg(`/assets/dog/death/frame_${String(i).padStart(3, '0')}.png`));
 
-// ── Orc enemy spritesheets (64×64 cells, 4 direction rows) ──
-function loadOrcSheet(name) {
-    const sheets = {};
+// ── Orc enemy sprites (individual frames per action/direction) ──
+function loadOrcFrames(name) {
+    const frames = {};
+    const FRAME_COUNTS = { idle: 4, walk: 6, attack: 8, death: 8, run: 8, hurt: 6 };
+    const DIRECTIONS = ['south', 'west', 'east', 'north'];
+    
     for (const action of ['idle', 'walk', 'attack', 'death', 'run', 'hurt']) {
-        sheets[action] = loadImg(`/assets/${name}/${action}.png`);
+        frames[action] = {};
+        const maxFrames = FRAME_COUNTS[action];
+        
+        DIRECTIONS.forEach(dir => {
+            frames[action][dir] = [];
+            for (let i = 0; i < maxFrames; i++) {
+                const path = `/assets/${name}/animations/${action}/${dir}/frame_${String(i).padStart(3, '0')}.png`;
+                frames[action][dir].push(loadImg(path));
+            }
+        });
     }
-    return sheets;
+    
+    console.log(`Loaded ${name} frames:`, frames);
+    return frames;
 }
 
 export const orcSprites = {
-    orc1: loadOrcSheet('orc1'),
-    orc2: loadOrcSheet('orc2'),
-    orc3: loadOrcSheet('orc3'),
+    orc1: loadOrcFrames('orc1'),
+    orc2: loadOrcFrames('orc2'),
+    orc3: loadOrcFrames('orc3'),
 };
 
 // ── Sprite helpers ──
+export function getOrcDirection(dx, dy) {
+    if (Math.abs(dx) < 0.3 && Math.abs(dy) < 0.3) return 'south';
+    if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'west' : 'east';
+    return dy < 0 ? 'north' : 'south';
+}
+
 export function getOrcDirRow(dx, dy) {
-    if (Math.abs(dx) < 0.3 && Math.abs(dy) < 0.3) return 0;
-    if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 1 : 2;
-    return dy < 0 ? 3 : 0;
+    const dir = getOrcDirection(dx, dy);
+    const dirMap = { south: 0, west: 1, east: 2, north: 3 };
+    return dirMap[dir];
 }
 
 export function getEnemyAnim(id) {

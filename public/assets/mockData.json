@@ -2,69 +2,303 @@
     "questions": [
         {
             "difficulty": "easy",
-            "question": "What is the primary fail-safe for the ship's fusion core?",
+            "question": "Which planet is known as the Red Planet?",
             "options": [
-                "Magnetic Containment",
-                "Chemical Venting",
-                "Plasma Dumping",
-                "Kinetic Dampers"
+                "Mars",
+                "Venus",
+                "Jupiter"
             ],
-            "correctAnswer": "Magnetic Containment"
+            "correctAnswer": "Mars"
         },
         {
             "difficulty": "easy",
-            "question": "Which gas is used for life support system?",
+            "question": "What is the largest planet in our solar system?",
             "options": [
-                "Nitrogen",
-                "Oxygen",
-                "Carbon Dioxide",
-                "Argon"
+                "Saturn",
+                "Jupiter",
+                "Neptune"
             ],
-            "correctAnswer": "Nitrogen"
+            "correctAnswer": "Jupiter"
+        },
+        {
+            "difficulty": "easy",
+            "question": "Which planet has the most visible rings?",
+            "options": [
+                "Saturn",
+                "Uranus",
+                "Mars"
+            ],
+            "correctAnswer": "Saturn"
+        },
+        {
+            "difficulty": "easy",
+            "question": "What star is at the center of our solar system?",
+            "options": [
+                "Polaris",
+                "The Sun",
+                "Sirius"
+            ],
+            "correctAnswer": "The Sun"
+        },
+        {
+            "difficulty": "easy",
+            "question": "Which planet is closest to the Sun?",
+            "options": [
+                "Mercury",
+                "Venus",
+                "Earth"
+            ],
+            "correctAnswer": "Mercury"
+        },
+        {
+            "difficulty": "easy",
+            "question": "What galaxy do we live in?",
+            "options": [
+                "Andromeda",
+                "Milky Way",
+                "Whirlpool"
+            ],
+            "correctAnswer": "Milky Way"
+        },
+        {
+            "difficulty": "easy",
+            "question": "Which planet is known for its Great Red Spot?",
+            "options": [
+                "Mars",
+                "Jupiter",
+                "Neptune"
+            ],
+            "correctAnswer": "Jupiter"
+        },
+        {
+            "difficulty": "easy",
+            "question": "Which planet is tilted on its side?",
+            "options": [
+                "Uranus",
+                "Earth",
+                "Venus"
+            ],
+            "correctAnswer": "Uranus"
+        },
+        {
+            "difficulty": "easy",
+            "question": "What protects Earth from harmful solar radiation?",
+            "options": [
+                "Atmosphere",
+                "Magnetosphere",
+                "Moon"
+            ],
+            "correctAnswer": "Magnetosphere"
+        },
+        {
+            "difficulty": "easy",
+            "question": "Which planet is the hottest in the solar system?",
+            "options": [
+                "Mercury",
+                "Venus",
+                "Mars"
+            ],
+            "correctAnswer": "Venus"
         },
         {
             "difficulty": "medium",
-            "question": "What is the atmospheric pressure of this Exoplanet?",
+            "question": "What do we call a rocky object that enters Earth’s atmosphere?",
             "options": [
-                "1.8x (Heavy)",
-                "0.5x (Thin)",
-                "3.0x (Crushing)",
-                "1.0x (Earth-like)"
+                "Asteroid",
+                "Meteor",
+                "Comet"
             ],
-            "correctAnswer": "1.8x (Heavy)"
+            "correctAnswer": "Meteor"
         },
         {
             "difficulty": "medium",
-            "question": "Which element is most abundant in the exoplanet's crust?",
+            "question": "Which planet has the longest day (rotation time)?",
             "options": [
-                "Silicon",
-                "Iron",
+                "Venus",
+                "Earth",
+                "Mars"
+            ],
+            "correctAnswer": "Venus"
+        },
+        {
+            "difficulty": "medium",
+            "question": "What is the name of Earth’s natural satellite?",
+            "options": [
+                "Titan",
+                "Europa",
+                "Moon"
+            ],
+            "correctAnswer": "Moon"
+        },
+        {
+            "difficulty": "medium",
+            "question": "Which planet has the strongest gravity?",
+            "options": [
+                "Jupiter",
+                "Saturn",
+                "Neptune"
+            ],
+            "correctAnswer": "Jupiter"
+        },
+        {
+            "difficulty": "medium",
+            "question": "Which gas is most abundant in the Sun?",
+            "options": [
                 "Oxygen",
-                "Magnesium"
+                "Hydrogen",
+                "Nitrogen"
             ],
-            "correctAnswer": "Silicon"
+            "correctAnswer": "Hydrogen"
+        },
+        {
+            "difficulty": "medium",
+            "question": "Which planet is farthest from the Sun?",
+            "options": [
+                "Neptune",
+                "Uranus",
+                "Pluto"
+            ],
+            "correctAnswer": "Neptune"
+        },
+        {
+            "difficulty": "medium",
+            "question": "What causes tides on Earth?",
+            "options": [
+                "Sun",
+                "Wind",
+                "Moon"
+            ],
+            "correctAnswer": "Moon"
+        },
+        {
+            "difficulty": "medium",
+            "question": "Which planet has the thickest atmosphere?",
+            "options": [
+                "Venus",
+                "Mars",
+                "Mercury"
+            ],
+            "correctAnswer": "Venus"
+        },
+        {
+            "difficulty": "medium",
+            "question": "Which is the smallest planet in the solar system?",
+            "options": [
+                "Mercury",
+                "Mars",
+                "Venus"
+            ],
+            "correctAnswer": "Mercury"
+        },
+        {
+            "difficulty": "medium",
+            "question": "What do we call frozen gas and dust objects orbiting the Sun?",
+            "options": [
+                "Meteors",
+                "Comets",
+                "Asteroids"
+            ],
+            "correctAnswer": "Comets"
         },
         {
             "difficulty": "hard",
-            "question": "Which encryption secures the Ancient Data Nodes?",
+            "question": "Which planet has the most moons?",
             "options": [
-                "RSA-2048 Block",
-                "Quantum Lattice",
-                "Polymorphic Hash",
-                "Fractal Cypher"
+                "Jupiter",
+                "Earth",
+                "Mars"
             ],
-            "correctAnswer": "Quantum Lattice"
+            "correctAnswer": "Jupiter"
         },
         {
             "difficulty": "hard",
-            "question": "What is the primary power source for the Ancient Data Nodes?",
+            "question": "Which planet rotates backwards compared to most others?",
             "options": [
-                "Sub-space Resonance",
-                "Solar Capture",
-                "Geothermal Tap",
-                "Dark Matter Decay"
+                "Venus",
+                "Mars",
+                "Jupiter"
             ],
-            "correctAnswer": "Sub-space Resonance"
+            "correctAnswer": "Venus"
+        },
+        {
+            "difficulty": "hard",
+            "question": "What is the term for a dying massive star explosion?",
+            "options": [
+                "Nova",
+                "Supernova",
+                "Eclipse"
+            ],
+            "correctAnswer": "Supernova"
+        },
+        {
+            "difficulty": "hard",
+            "question": "Which moon is believed to have a subsurface ocean?",
+            "options": [
+                "Europa",
+                "Phobos",
+                "Deimos"
+            ],
+            "correctAnswer": "Europa"
+        },
+        {
+            "difficulty": "hard",
+            "question": "What lies between Mars and Jupiter?",
+            "options": [
+                "Kuiper Belt",
+                "Asteroid Belt",
+                "Ring Belt"
+            ],
+            "correctAnswer": "Asteroid Belt"
+        },
+        {
+            "difficulty": "hard",
+            "question": "Which planet has the shortest year?",
+            "options": [
+                "Mercury",
+                "Earth",
+                "Mars"
+            ],
+            "correctAnswer": "Mercury"
+        },
+        {
+            "difficulty": "hard",
+            "question": "What defines one year on Earth?",
+            "options": [
+                "Earth’s rotation",
+                "Earth’s revolution around the Sun",
+                "Moon cycle"
+            ],
+            "correctAnswer": "Earth’s revolution around the Sun"
+        },
+        {
+            "difficulty": "hard",
+            "question": "Which planet appears blue due to methane in its atmosphere?",
+            "options": [
+                "Neptune",
+                "Jupiter",
+                "Venus"
+            ],
+            "correctAnswer": "Neptune"
+        },
+        {
+            "difficulty": "hard",
+            "question": "Which planet has almost no atmosphere?",
+            "options": [
+                "Mercury",
+                "Earth",
+                "Mars"
+            ],
+            "correctAnswer": "Mercury"
+        },
+        {
+            "difficulty": "hard",
+            "question": "What force keeps planets in orbit around the Sun?",
+            "options": [
+                "Wind",
+                "Gravity",
+                "Magnetism"
+            ],
+            "correctAnswer": "Gravity"
         }
     ]
 }

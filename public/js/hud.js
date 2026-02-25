@@ -33,18 +33,27 @@ export function updateHUD() {
     }
 
     if (me) {
-        const hpPct = Math.max(0, me.hp / me.maxHp);
-        hudHpBar.style.width = (hpPct * 100) + '%';
-        hudHpBar.className = 'hud-hp-bar' + (hpPct < 0.3 ? ' low' : hpPct < 0.6 ? ' mid' : '');
-        hudHpText.textContent = `${Math.round(me.hp)} / ${me.maxHp}`;
-
-        const cdReady = me.abilityCd <= 0;
-        hudAbility.classList.toggle('ready', cdReady);
-        if (!cdReady) {
-            const cdPct = Math.max(0, 1 - me.abilityCd / 30);
-            hudAbilityCd.style.height = (cdPct * 100) + '%';
+        if (!me.alive) {
+            // Player is spectating
+            hudHpBar.style.width = '0%';
+            hudHpText.textContent = 'SPECTATING';
+            const cdReady = me.abilityCd <= 0;
+            hudAbility.classList.toggle('ready', false);
+            hudAbilityCd.style.height = '0%';
         } else {
-            hudAbilityCd.style.height = '100%';
+            const hpPct = Math.max(0, me.hp / me.maxHp);
+            hudHpBar.style.width = (hpPct * 100) + '%';
+            hudHpBar.className = 'hud-hp-bar' + (hpPct < 0.3 ? ' low' : hpPct < 0.6 ? ' mid' : '');
+            hudHpText.textContent = `${Math.round(me.hp)} / ${me.maxHp}`;
+
+            const cdReady = me.abilityCd <= 0;
+            hudAbility.classList.toggle('ready', cdReady);
+            if (!cdReady) {
+                const cdPct = Math.max(0, 1 - me.abilityCd / 30);
+                hudAbilityCd.style.height = (cdPct * 100) + '%';
+            } else {
+                hudAbilityCd.style.height = '100%';
+            }
         }
     }
 }
