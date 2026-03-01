@@ -131,19 +131,28 @@
                         style="padding: 8px 12px; margin-left:10px; font-size: 1.1rem; background: rgba(100, 200, 255, 0.2); border-color: rgba(100, 200, 255, 0.5); color: #64c8ff; cursor: pointer;">
                         <i class="fas fa-copy"></i>
                     </button>
-                    <button id="speakerBtn" class="btn btn-secondary" title="Toggle background music"
-                        style="padding: 8px 12px; margin-left:20px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                </div>
+                <div class="audio-controls" style="display: flex; gap: 10px; margin-top: 15px; align-items: center;">
+                    <span style="color: #aaa; font-size: 0.9rem; font-weight: bold;">AUDIO:</span>
+                    <button id="speakerBtn" class="btn btn-secondary" title="Toggle Background Music"
+                        style="padding: 10px 16px; font-size: 1.2rem; background: rgba(76, 175, 80, 0.3); border-color: rgba(76, 175, 80, 0.7); border-radius: 6px; color: #4caf50; cursor: pointer; flex-shrink: 0; transition: all 0.2s;">
                         <i class="fas fa-volume-up"></i>
+                        <span style="margin-left: 6px; font-size: 0.9rem;">MUSIC</span>
                     </button>
-                    <button id="sfxBtn" class="btn btn-secondary" title="Toggle sound effects"
-                        style="padding: 8px 12px; margin-left:10px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                    <button id="sfxBtn" class="btn btn-secondary" title="Toggle Sound Effects"
+                        style="padding: 10px 16px; font-size: 1.2rem; background: rgba(255, 152, 0, 0.3); border-color: rgba(255, 152, 0, 0.7); border-radius: 6px; color: #ff9800; cursor: pointer; flex-shrink: 0; transition: all 0.2s;">
                         <i class="fas fa-music"></i>
+                        <span style="margin-left: 6px; font-size: 0.9rem;">SFX</span>
                     </button>
+                </div>
+                <div class="voice-controls" style="display: flex; gap: 10px; margin-top: 15px; align-items: center;">
+                    <span style="color: #aaa; font-size: 0.9rem; font-weight: bold;">VOICE:</span>
                     <select id="speakerSelect" class="btn btn-secondary"
                         style="display:none; padding: 6px; margin-left: 10px; font-size: 0.8rem; background: rgba(0,0,0,0.5); border-color: rgba(255, 255, 255, 0.2); color: #fff; max-width: 150px; text-overflow: ellipsis; outline: none;"></select>
-                    <button id="micBtn" class="btn btn-secondary" title="Toggle microphone"
-                        style="padding: 8px 12px; margin-left:10px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                    <button id="micBtn" class="btn btn-secondary" title="Toggle Microphone"
+                        style="padding: 10px 16px; font-size: 1.2rem; background: rgba(244, 67, 54, 0.3); border-color: rgba(244, 67, 54, 0.7); border-radius: 6px; color: #f44336; cursor: pointer; flex-shrink: 0; transition: all 0.2s;">
                         <i class="fas fa-microphone"></i>
+                        <span style="margin-left: 6px; font-size: 0.9rem;">MIC</span>
                     </button>
                 </div>
                 <div id="roleSelection" class="role-grid">

@@ -23,23 +23,22 @@ export function initLobby() {
         });
     };
 
-    // Speaker (background music) button
+    // Speaker (background music mute) button
     document.getElementById('speakerBtn').onclick = () => {
-        toggleSpeaker();
-        const isMuted = !S.speakerEnabled;
+        const muted = toggleBgMute();
         const icon = document.getElementById('speakerBtn').querySelector('i');
-        icon.className = isMuted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
+        icon.className = muted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
     };
 
-    // Microphone button
-    document.getElementById('micBtn').onclick = () => toggleMic();
-
-    // SFX button
+    // SFX (sound effects mute) button
     document.getElementById('sfxBtn').onclick = () => {
         const muted = toggleSfxMute();
         const icon = document.getElementById('sfxBtn').querySelector('i');
         icon.className = muted ? 'fas fa-volume-off' : 'fas fa-music';
     };
+
+    // Microphone button (voice chat)
+    document.getElementById('micBtn').onclick = () => toggleMic();
 
     document.getElementById('createBtn').onclick = () => {
         const name = document.getElementById('nameInput').value.trim();
