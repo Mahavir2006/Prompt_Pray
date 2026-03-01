@@ -9,6 +9,28 @@
 
 const SFX_PATH = '/assets/sfx/';
 
+// ── Audio mute states ──
+export let bgMuted = false;        // Background music mute toggle
+export let sfxMuted = false;       // Sound effects mute toggle
+
+export function toggleBgMute() {
+    bgMuted = !bgMuted;
+    return bgMuted;
+}
+
+export function toggleSfxMute() {
+    sfxMuted = !sfxMuted;
+    return sfxMuted;
+}
+
+export function setBgMute(muted) {
+    bgMuted = muted;
+}
+
+export function setSfxMute(muted) {
+    sfxMuted = muted;
+}
+
 // ── Pre-load every SFX clip ──
 const clips = {
     countdown:    new Audio(SFX_PATH + 'countdown.wav'),     // "3 2 1 go" – after launch mission
@@ -112,7 +134,7 @@ async function switchBgTrack(trackKey) {
 
     const next = bgTracks[trackKey];
     if (!next) return;
-    const targetVol = trackKey === 'finalBoss' ? BOSS_VOLUME : BG_VOLUME;
+    const targetVol = bgMuted ? 0 : (trackKey === 'finalBoss' ? BOSS_VOLUME : BG_VOLUME);
     next.volume = 0;
     next.currentTime = 0;
     next.play().catch(() => {});
@@ -154,6 +176,9 @@ export function stopAllMusic() {
  * @param {number} [vol] – optional 0-1 override
  */
 export function playSFX(name, vol) {
+    // Don't play SFX if muted
+    if (sfxMuted) return;
+    
     const src = clips[name];
     if (!src) return;
     const a = src.cloneNode();

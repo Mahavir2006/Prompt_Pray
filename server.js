@@ -396,8 +396,8 @@ const OBJECTIVES = [
     // Wave 2: Left and Right shuttle repair (18s engineer, 30s others)
     { phase: 'objective2_left', x: 250 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 30, engineerTime: 18, otherTime: 30, desc: 'Repair Left Shuttle (Hold E)', zone: 'left_3', map: 'ship', isTrivia: false },
     { phase: 'objective2_right', x: 774 * MAP_SCALE, y: 490 * MAP_SCALE, repairTime: 30, engineerTime: 18, otherTime: 30, desc: 'Repair Right Shuttle (Hold E)', zone: 'right_3', map: 'ship', isTrivia: false },
-    // Exoplanet: 10 trivia questions at top left
-    { phase: 'trivia_planet_top', x: 400 * PLANET_SCALE, y: 240 * PLANET_SCALE, desc: 'Left Node Terminal (Press E)', map: 'planet', isTrivia: true, difficulty: 'medium', time: 15, triviaCount: 10 },
+    // Exoplanet: 10 trivia questions in the middle of the map (reachable)
+    { phase: 'trivia_planet_top', x: 768 * PLANET_SCALE, y: 512 * PLANET_SCALE, desc: 'Central Node Terminal (Press E)', map: 'planet', isTrivia: true, difficulty: 'medium', time: 15, triviaCount: 10 },
     // Exoplanet: Communication task at bottom right (30s engineer, 45s others)
     { phase: 'objective3', x: 1350 * PLANET_SCALE, y: 800 * PLANET_SCALE, repairTime: 45, engineerTime: 30, otherTime: 45, desc: 'Communication Array (Hold E)', zone: 'planet_right', map: 'planet', isTrivia: false }
 ];
@@ -1112,9 +1112,13 @@ function getOrcType(gs) {
         case 'objective2': case 'trivia_left':
             return 'orc2'; // Wave 2
         case 'objective3': case 'trivia_right': case 'trivia1':
-            return Math.random() < 0.5 ? 'orc1' : 'orc2'; // Wave 3: mix of both
+            return Math.random() < 0.4 ? 'orc1' : (Math.random() < 0.5 ? 'orc2' : 'orc3'); // Wave 3: mix of all three
         default:
-            return Math.random() < 0.5 ? 'orc1' : 'orc2'; // Later waves: mix
+            // Later waves: all three orc types with equal probability
+            const rand = Math.random();
+            if (rand < 0.33) return 'orc1';
+            else if (rand < 0.66) return 'orc2';
+            else return 'orc3';
     }
 }
 

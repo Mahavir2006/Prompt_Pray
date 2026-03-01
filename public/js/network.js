@@ -112,6 +112,22 @@ function handleMessage(msg) {
                         playLowHealth();
                     }
                 }
+
+                // Alert medics if any teammate is low on health
+                const mePlayer = msg.players.find(p => p.id === S.myId);
+                if (mePlayer && mePlayer.role === 'medic') {
+                    msg.players.forEach(p => {
+                        if (p.id !== S.myId && p.alive && p.hp > 0 && p.hp / p.maxHp < 0.20) {
+                            // Medic hears a low health alert for their teammate
+                            S.floatTexts.push({
+                                x: p.x, y: p.y - 60,
+                                text: '⚠ CRITICAL: ' + p.name.toUpperCase(),
+                                color: '#ff4444',
+                                life: 2.0, vy: -30
+                            });
+                        }
+                    });
+                }
             }
 
             if (msg.events) {

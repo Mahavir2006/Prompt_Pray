@@ -794,7 +794,7 @@ function drawBoss() {
     if (sheet && sheet.complete && sheet.naturalWidth > 0) {
         const sx = frameIdx * ORC_FRAME;
         const sy = dirRow * ORC_FRAME;
-        const bossScale = 4.0 * entranceScale;
+        const bossScale = 6.5 * entranceScale;
         const dW = ORC_FRAME * bossScale;
         const dH = ORC_FRAME * bossScale;
         ctx.save();

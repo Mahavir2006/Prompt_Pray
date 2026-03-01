@@ -4,7 +4,7 @@ import { ROLE_COLORS, DISCLAIMER_TEXT } from './constants.js';
 import { toggleSpeaker, toggleMic, connectToPeers } from './voicechat.js';
 import { showError } from './ui.js';
 import { connect } from './network.js';
-import { playSFX, startLobbyMusic, stopAllMusic } from './audio.js';
+import { playSFX, startLobbyMusic, stopAllMusic, toggleBgMute, toggleSfxMute } from './audio.js';
 
 const lobbyOverlay = document.getElementById('lobbyOverlay');
 const connectScreen = document.getElementById('connectScreen');
@@ -13,8 +13,16 @@ const gameOverOverlay = document.getElementById('gameOverOverlay');
 const disclaimerOverlay = document.getElementById('disclaimerOverlay');
 
 export function initLobby() {
-    document.getElementById('speakerBtn').onclick = () => toggleSpeaker();
+    document.getElementById('speakerBtn').onclick = () => {
+        toggleSpeaker();
+        const isMuted = !S.speakerEnabled;
+        document.getElementById('speakerBtn').textContent = isMuted ? '🔇 BG MUSIC ON' : '🔊 BG MUSIC OFF';
+    };
     document.getElementById('micBtn').onclick = () => toggleMic();
+    document.getElementById('sfxBtn').onclick = () => {
+        const muted = toggleSfxMute();
+        document.getElementById('sfxBtn').textContent = muted ? '🔘 SFX ON' : '🔔 SFX OFF';
+    };
 
     document.getElementById('createBtn').onclick = () => {
         const name = document.getElementById('nameInput').value.trim();

@@ -1,5 +1,6 @@
 // ======================== HUD ========================
 import { S } from './state.js';
+import { toggleBgMute, toggleSfxMute } from './audio.js';
 
 const timerDisplay     = document.getElementById('timerDisplay');
 const objectiveDisplay = document.getElementById('objectiveDisplay');
@@ -7,6 +8,24 @@ const hudHpBar         = document.getElementById('hudHpBar');
 const hudHpText        = document.getElementById('hudHpText');
 const hudAbility       = document.getElementById('hudAbility');
 const hudAbilityCd     = document.getElementById('hudAbilityCd');
+
+// Audio control buttons in HUD
+const hudBgMuteBtn = document.getElementById('hudBgMuteBtn');
+const hudSfxMuteBtn = document.getElementById('hudSfxMuteBtn');
+
+if (hudBgMuteBtn) {
+    hudBgMuteBtn.onclick = () => {
+        const muted = toggleBgMute();
+        hudBgMuteBtn.textContent = muted ? '🔇' : '🔊';
+    };
+}
+
+if (hudSfxMuteBtn) {
+    hudSfxMuteBtn.onclick = () => {
+        const muted = toggleSfxMute();
+        hudSfxMuteBtn.textContent = muted ? '🔘' : '🔔';
+    };
+}
 
 export function updateHUD() {
     if (!S.gameState) return;

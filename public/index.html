@@ -127,8 +127,11 @@
                 <div class="room-code-display">
                     ROOM: <span id="roomCodeDisplay"></span>
                     <button id="speakerBtn" class="btn btn-secondary"
-                        style="padding: 6px 14px; margin-left:20px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">SPEAKER
-                        OFF</button>
+                        style="padding: 6px 14px; margin-left:20px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">🔊
+                        BG MUSIC OFF</button>
+                    <button id="sfxBtn" class="btn btn-secondary"
+                        style="padding: 6px 14px; margin-left:10px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">🔔
+                        SFX OFF</button>
                     <select id="speakerSelect" class="btn btn-secondary"
                         style="display:none; padding: 6px; margin-left: 10px; font-size: 0.8rem; background: rgba(0,0,0,0.5); border-color: rgba(255, 255, 255, 0.2); color: #fff; max-width: 150px; text-overflow: ellipsis; outline: none;"></select>
                     <button id="micBtn" class="btn btn-secondary"
@@ -205,11 +208,14 @@
         </div>
     </div>
 
-    <!-- HUD (shown during gameplay) -->
-    <div id="hud" style="display:none;">
+        <div id="hud" style="display:none;">
         <div id="timerDisplay" class="hud-timer">10:00</div>
         <div id="objectiveDisplay" class="hud-objective"></div>
         <div id="phaseDisplay" class="hud-phase"></div>
+        <div id="hudAudioControls" style="position: absolute; top: 10px; right: 10px; display: flex; gap: 5px;">
+            <button id="hudBgMuteBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">🔊</button>
+            <button id="hudSfxMuteBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">🔔</button>
+        </div>
         <div id="playerHud" class="hud-player">
             <div class="hud-hp-bar-container">
                 <div id="hudHpBar" class="hud-hp-bar"></div>
