@@ -13,15 +13,32 @@ const gameOverOverlay = document.getElementById('gameOverOverlay');
 const disclaimerOverlay = document.getElementById('disclaimerOverlay');
 
 export function initLobby() {
+    // Copy room code button
+    document.getElementById('copyRoomCodeBtn').onclick = () => {
+        const roomCode = document.getElementById('roomCodeDisplay').textContent;
+        navigator.clipboard.writeText(roomCode).then(() => {
+            showError('✓ Room code copied!');
+        }).catch(() => {
+            showError('Failed to copy room code');
+        });
+    };
+
+    // Speaker (background music) button
     document.getElementById('speakerBtn').onclick = () => {
         toggleSpeaker();
         const isMuted = !S.speakerEnabled;
-        document.getElementById('speakerBtn').textContent = isMuted ? '🔇 BG MUSIC ON' : '🔊 BG MUSIC OFF';
+        const icon = document.getElementById('speakerBtn').querySelector('i');
+        icon.className = isMuted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
     };
+
+    // Microphone button
     document.getElementById('micBtn').onclick = () => toggleMic();
+
+    // SFX button
     document.getElementById('sfxBtn').onclick = () => {
         const muted = toggleSfxMute();
-        document.getElementById('sfxBtn').textContent = muted ? '🔘 SFX ON' : '🔔 SFX OFF';
+        const icon = document.getElementById('sfxBtn').querySelector('i');
+        icon.className = muted ? 'fas fa-volume-off' : 'fas fa-music';
     };
 
     document.getElementById('createBtn').onclick = () => {

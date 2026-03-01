@@ -16,14 +16,16 @@ const hudSfxMuteBtn = document.getElementById('hudSfxMuteBtn');
 if (hudBgMuteBtn) {
     hudBgMuteBtn.onclick = () => {
         const muted = toggleBgMute();
-        hudBgMuteBtn.textContent = muted ? '🔇' : '🔊';
+        const icon = hudBgMuteBtn.querySelector('i');
+        icon.className = muted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
     };
 }
 
 if (hudSfxMuteBtn) {
     hudSfxMuteBtn.onclick = () => {
         const muted = toggleSfxMute();
-        hudSfxMuteBtn.textContent = muted ? '🔘' : '🔔';
+        const icon = hudSfxMuteBtn.querySelector('i');
+        icon.className = muted ? 'fas fa-volume-off' : 'fas fa-music';
     };
 }
 

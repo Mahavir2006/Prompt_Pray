@@ -7,6 +7,7 @@
     <title>EXOPLAY — Space Survival</title>
     <meta name="description" content="Real-time multiplayer cooperative space survival game">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link
         href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap"
         rel="stylesheet">
@@ -126,17 +127,24 @@
             <div id="roomScreen" style="display:none;">
                 <div class="room-code-display">
                     ROOM: <span id="roomCodeDisplay"></span>
-                    <button id="speakerBtn" class="btn btn-secondary"
-                        style="padding: 6px 14px; margin-left:20px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">🔊
-                        BG MUSIC OFF</button>
-                    <button id="sfxBtn" class="btn btn-secondary"
-                        style="padding: 6px 14px; margin-left:10px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">🔔
-                        SFX OFF</button>
+                    <button id="copyRoomCodeBtn" class="btn btn-secondary" title="Copy room code"
+                        style="padding: 8px 12px; margin-left:10px; font-size: 1.1rem; background: rgba(100, 200, 255, 0.2); border-color: rgba(100, 200, 255, 0.5); color: #64c8ff; cursor: pointer;">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                    <button id="speakerBtn" class="btn btn-secondary" title="Toggle background music"
+                        style="padding: 8px 12px; margin-left:20px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                        <i class="fas fa-volume-up"></i>
+                    </button>
+                    <button id="sfxBtn" class="btn btn-secondary" title="Toggle sound effects"
+                        style="padding: 8px 12px; margin-left:10px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                        <i class="fas fa-music"></i>
+                    </button>
                     <select id="speakerSelect" class="btn btn-secondary"
                         style="display:none; padding: 6px; margin-left: 10px; font-size: 0.8rem; background: rgba(0,0,0,0.5); border-color: rgba(255, 255, 255, 0.2); color: #fff; max-width: 150px; text-overflow: ellipsis; outline: none;"></select>
-                    <button id="micBtn" class="btn btn-secondary"
-                        style="padding: 6px 14px; margin-left:10px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">MIC
-                        OFF</button>
+                    <button id="micBtn" class="btn btn-secondary" title="Toggle microphone"
+                        style="padding: 8px 12px; margin-left:10px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                        <i class="fas fa-microphone"></i>
+                    </button>
                 </div>
                 <div id="roleSelection" class="role-grid">
                     <div class="role-card" data-role="vanguard">
@@ -213,8 +221,12 @@
         <div id="objectiveDisplay" class="hud-objective"></div>
         <div id="phaseDisplay" class="hud-phase"></div>
         <div id="hudAudioControls" style="position: absolute; top: 10px; right: 10px; display: flex; gap: 5px;">
-            <button id="hudBgMuteBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">🔊</button>
-            <button id="hudSfxMuteBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946;">🔔</button>
+            <button id="hudBgMuteBtn" class="btn btn-secondary" title="Toggle background music" style="padding: 8px 12px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                <i class="fas fa-volume-up"></i>
+            </button>
+            <button id="hudSfxMuteBtn" class="btn btn-secondary" title="Toggle sound effects" style="padding: 8px 12px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                <i class="fas fa-music"></i>
+            </button>
         </div>
         <div id="playerHud" class="hud-player">
             <div class="hud-hp-bar-container">
