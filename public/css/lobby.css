@@ -7,6 +7,84 @@
     overflow-y: auto;
 }
 
+/* ============ TOP CONTROL BAR ============ */
+.top-control-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    padding: 15px 20px;
+    margin-bottom: 20px;
+    background: rgba(10, 10, 30, 0.4);
+    border: 1px solid rgba(76, 201, 240, 0.2);
+    border-radius: 8px;
+}
+
+.control-section {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.left-section {
+    flex: 0 0 auto;
+}
+
+.right-section {
+    flex: 0 0 auto;
+}
+
+.room-code-display-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+    font-size: 1.4rem;
+    color: #4cc9f0;
+    letter-spacing: 0.2em;
+}
+
+.btn-control-btn {
+    padding: 10px 14px !important;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid;
+}
+
+.btn-control-btn:hover {
+    transform: scale(1.05);
+    filter: brightness(1.2);
+}
+
+.btn-control-btn:active {
+    transform: scale(0.95);
+}
+
+/* Glow animation for copy button */
+@keyframes copyGlow {
+    0% {
+        box-shadow: 0 0 0 0 rgba(100, 200, 255, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 20px 10px rgba(100, 200, 255, 0.4);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(100, 200, 255, 0);
+    }
+}
+
+.btn-copy.glowing {
+    animation: copyGlow 0.6s ease-out;
+}
+
 .game-title {
     font-family: 'Press Start 2P', monospace;
     font-size: 3.5rem;

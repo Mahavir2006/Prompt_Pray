@@ -588,5 +588,24 @@
       "bestSurvival": 1,
       "mvp": 1
     }
+  },
+  {
+    "name": "l",
+    "role": "engineer",
+    "totalScore": 0,
+    "missionsCompleted": 0,
+    "enemiesKilled": 0,
+    "damageDealt": 0,
+    "healingDone": 0,
+    "repairsDone": 0,
+    "triviaCorrect": 0,
+    "gamesPlayed": 1,
+    "categoryWins": {
+      "bestCombat": 1,
+      "bestSupport": 1,
+      "bestTrivia": 1,
+      "bestSurvival": 1,
+      "mvp": 1
+    }
   }
 ]

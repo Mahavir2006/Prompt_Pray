@@ -9,10 +9,10 @@ const hudHpText        = document.getElementById('hudHpText');
 const hudAbility       = document.getElementById('hudAbility');
 const hudAbilityCd     = document.getElementById('hudAbilityCd');
 
-// Audio control buttons in HUD
+
+// Audio control buttons in HUD (right)
 const hudBgMuteBtn = document.getElementById('hudBgMuteBtn');
 const hudSfxMuteBtn = document.getElementById('hudSfxMuteBtn');
-
 if (hudBgMuteBtn) {
     hudBgMuteBtn.onclick = () => {
         const muted = toggleBgMute();
@@ -21,12 +21,29 @@ if (hudBgMuteBtn) {
         icon.className = muted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
     };
 }
-
 if (hudSfxMuteBtn) {
     hudSfxMuteBtn.onclick = () => {
         const muted = toggleSfxMute();
         const icon = hudSfxMuteBtn.querySelector('i');
         icon.className = muted ? 'fas fa-volume-off' : 'fas fa-music';
+    };
+}
+
+// Voice control buttons in HUD (left)
+const hudVoiceSpeakerBtn = document.getElementById('hudVoiceSpeakerBtn');
+const hudMicBtn = document.getElementById('hudMicBtn');
+if (hudVoiceSpeakerBtn) {
+    hudVoiceSpeakerBtn.onclick = () => {
+        import('./voicechat.js').then(vc => {
+            vc.toggleSpeaker();
+        });
+    };
+}
+if (hudMicBtn) {
+    hudMicBtn.onclick = () => {
+        import('./voicechat.js').then(vc => {
+            vc.toggleMic();
+        });
     };
 }
 

@@ -55,7 +55,27 @@
         </div>
     </div>
 
-    <canvas id="gameCanvas"></canvas>
+    <div style="position: relative; width: 100vw; height: 100vh; overflow: hidden;">
+        <canvas id="gameCanvas" style="position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none;"></canvas>
+        <!-- HUD Audio Controls (right) -->
+        <div id="hudAudioControls" style="position: absolute; top: 10px; right: 10px; z-index: 10; display: flex; gap: 5px; pointer-events: auto;">
+            <button id="hudBgMuteBtn" class="btn btn-secondary" title="Toggle background music" style="padding: 8px 12px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                <i class="fas fa-volume-up"></i>
+            </button>
+            <button id="hudSfxMuteBtn" class="btn btn-secondary" title="Toggle sound effects" style="padding: 8px 12px; font-size: 1.1rem; background: rgba(230, 57, 70, 0.2); border-color: rgba(230, 57, 70, 0.5); color: #e63946; cursor: pointer;">
+                <i class="fas fa-music"></i>
+            </button>
+        </div>
+        <!-- HUD Voice Controls (left) -->
+        <div id="hudVoiceControls" style="position: absolute; top: 10px; left: 10px; z-index: 10; display: flex; gap: 5px; pointer-events: auto;">
+            <button id="hudVoiceSpeakerBtn" class="btn btn-secondary" title="Toggle voice output" style="padding: 8px 12px; font-size: 1.1rem; background: rgba(100, 200, 255, 0.2); border-color: rgba(100, 200, 255, 0.5); color: #64c8ff; cursor: pointer;">
+                <i class="fas fa-speaker"></i>
+            </button>
+            <button id="hudMicBtn" class="btn btn-secondary" title="Toggle microphone" style="padding: 8px 12px; font-size: 1.1rem; background: rgba(244, 67, 54, 0.2); border-color: rgba(244, 67, 54, 0.5); color: #f44336; cursor: pointer;">
+                <i class="fas fa-microphone"></i>
+            </button>
+        </div>
+    </div>
 
     <!-- TRIVIA TERMINAL OVERLAY -->
     <div id="triviaOverlay" class="overlay" style="display:none;">
@@ -125,36 +145,44 @@
             </div>
 
             <div id="roomScreen" style="display:none;">
-                <div class="room-code-display">
-                    ROOM: <span id="roomCodeDisplay"></span>
-                    <button id="copyRoomCodeBtn" class="btn btn-secondary" title="Copy room code"
-                        style="padding: 8px 12px; margin-left:10px; font-size: 1.1rem; background: rgba(100, 200, 255, 0.2); border-color: rgba(100, 200, 255, 0.5); color: #64c8ff; cursor: pointer;">
-                        <i class="fas fa-copy"></i>
-                    </button>
+                <!-- TOP CONTROL BAR -->
+                <div class="top-control-bar">
+                    <!-- LEFT SIDE: Voice Controls -->
+                    <div class="control-section left-section">
+                        <button id="voiceSpeakerBtn" class="btn btn-control-btn" title="Toggle Audio Output"
+                            style="padding: 10px 14px; font-size: 1.2rem; background: rgba(100, 200, 255, 0.3); border-color: rgba(100, 200, 255, 0.6); border-radius: 6px; color: #64c8ff; cursor: pointer; transition: all 0.2s;">
+                            <i class="fas fa-speaker"></i>
+                        </button>
+                        <button id="micBtn" class="btn btn-control-btn" title="Toggle Microphone"
+                            style="padding: 10px 14px; font-size: 1.2rem; background: rgba(244, 67, 54, 0.3); border-color: rgba(244, 67, 54, 0.6); border-radius: 6px; color: #f44336; cursor: pointer; transition: all 0.2s;">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                    </div>
+
+                    <!-- CENTER: Room Code -->
+                    <div class="room-code-display-control">
+                        <span>ROOM: </span>
+                        <span id="roomCodeDisplay" style="background: rgba(76, 201, 240, 0.15); padding: 8px 20px; border-radius: 6px; border: 1px solid rgba(76, 201, 240, 0.3);"></span>
+                        <button id="copyRoomCodeBtn" class="btn btn-copy" title="Copy room code"
+                            style="padding: 8px 12px; margin-left: 10px; font-size: 1.1rem; background: rgba(100, 200, 255, 0.2); border-color: rgba(100, 200, 255, 0.5); color: #64c8ff; cursor: pointer; border-radius: 6px; transition: all 0.2s;">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+
+                    <!-- RIGHT SIDE: Audio Controls -->
+                    <div class="control-section right-section">
+                        <button id="speakerBtn" class="btn btn-control-btn" title="Toggle Background Music"
+                            style="padding: 10px 14px; font-size: 1.2rem; background: rgba(76, 175, 80, 0.3); border-color: rgba(76, 175, 80, 0.6); border-radius: 6px; color: #4caf50; cursor: pointer; transition: all 0.2s;">
+                            <i class="fas fa-volume-up"></i>
+                        </button>
+                        <button id="sfxBtn" class="btn btn-control-btn" title="Toggle Sound Effects"
+                            style="padding: 10px 14px; font-size: 1.2rem; background: rgba(255, 152, 0, 0.3); border-color: rgba(255, 152, 0, 0.6); border-radius: 6px; color: #ff9800; cursor: pointer; transition: all 0.2s;">
+                            <i class="fas fa-music"></i>
+                        </button>
+                    </div>
                 </div>
-                <div class="audio-controls" style="display: flex; gap: 10px; margin-top: 15px; align-items: center;">
-                    <span style="color: #aaa; font-size: 0.9rem; font-weight: bold;">AUDIO:</span>
-                    <button id="speakerBtn" class="btn btn-secondary" title="Toggle Background Music"
-                        style="padding: 10px 16px; font-size: 1.2rem; background: rgba(76, 175, 80, 0.3); border-color: rgba(76, 175, 80, 0.7); border-radius: 6px; color: #4caf50; cursor: pointer; flex-shrink: 0; transition: all 0.2s;">
-                        <i class="fas fa-volume-up"></i>
-                        <span style="margin-left: 6px; font-size: 0.9rem;">MUSIC</span>
-                    </button>
-                    <button id="sfxBtn" class="btn btn-secondary" title="Toggle Sound Effects"
-                        style="padding: 10px 16px; font-size: 1.2rem; background: rgba(255, 152, 0, 0.3); border-color: rgba(255, 152, 0, 0.7); border-radius: 6px; color: #ff9800; cursor: pointer; flex-shrink: 0; transition: all 0.2s;">
-                        <i class="fas fa-music"></i>
-                        <span style="margin-left: 6px; font-size: 0.9rem;">SFX</span>
-                    </button>
-                </div>
-                <div class="voice-controls" style="display: flex; gap: 10px; margin-top: 15px; align-items: center;">
-                    <span style="color: #aaa; font-size: 0.9rem; font-weight: bold;">VOICE:</span>
-                    <select id="speakerSelect" class="btn btn-secondary"
-                        style="display:none; padding: 6px; margin-left: 10px; font-size: 0.8rem; background: rgba(0,0,0,0.5); border-color: rgba(255, 255, 255, 0.2); color: #fff; max-width: 150px; text-overflow: ellipsis; outline: none;"></select>
-                    <button id="micBtn" class="btn btn-secondary" title="Toggle Microphone"
-                        style="padding: 10px 16px; font-size: 1.2rem; background: rgba(244, 67, 54, 0.3); border-color: rgba(244, 67, 54, 0.7); border-radius: 6px; color: #f44336; cursor: pointer; flex-shrink: 0; transition: all 0.2s;">
-                        <i class="fas fa-microphone"></i>
-                        <span style="margin-left: 6px; font-size: 0.9rem;">MIC</span>
-                    </button>
-                </div>
+                <select id="speakerSelect" class="btn btn-secondary"
+                    style="display:none; padding: 6px; margin-left: 10px; font-size: 0.8rem; background: rgba(0,0,0,0.5); border-color: rgba(255, 255, 255, 0.2); color: #fff; max-width: 150px; text-overflow: ellipsis; outline: none;"></select>
                 <div id="roleSelection" class="role-grid">
                     <div class="role-card" data-role="vanguard">
                         <div class="role-avatar-container">

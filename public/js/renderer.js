@@ -981,7 +981,7 @@ function drawMinimap() {
 
     const mmW = 140;
     const mmH = 140 * (activeH / activeW);
-    const mmX = S.canvas.width - mmW - 16;
+    const mmX = 16;
     const mmY = 16;
 
     const scaleX = mmW / activeW;

@@ -13,17 +13,21 @@ const gameOverOverlay = document.getElementById('gameOverOverlay');
 const disclaimerOverlay = document.getElementById('disclaimerOverlay');
 
 export function initLobby() {
-    // Copy room code button
+
+    // Copy room code button with glow
     document.getElementById('copyRoomCodeBtn').onclick = () => {
+        const btn = document.getElementById('copyRoomCodeBtn');
         const roomCode = document.getElementById('roomCodeDisplay').textContent;
         navigator.clipboard.writeText(roomCode).then(() => {
+            btn.classList.add('glowing');
+            setTimeout(() => btn.classList.remove('glowing'), 700);
             showError('✓ Room code copied!');
         }).catch(() => {
             showError('Failed to copy room code');
         });
     };
 
-    // Speaker (background music mute) button
+    // Speaker (background music mute) button (right side)
     document.getElementById('speakerBtn').onclick = () => {
         const muted = toggleBgMute();
         applyMuteStates();
@@ -31,14 +35,24 @@ export function initLobby() {
         icon.className = muted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
     };
 
-    // SFX (sound effects mute) button
+    // SFX (sound effects mute) button (right side)
     document.getElementById('sfxBtn').onclick = () => {
         const muted = toggleSfxMute();
         const icon = document.getElementById('sfxBtn').querySelector('i');
         icon.className = muted ? 'fas fa-volume-off' : 'fas fa-music';
     };
 
-    // Microphone button (voice chat)
+    // Voice speaker button (left side)
+    const voiceSpeakerBtn = document.getElementById('voiceSpeakerBtn');
+    if (voiceSpeakerBtn) {
+        voiceSpeakerBtn.onclick = () => {
+            import('./voicechat.js').then(vc => {
+                vc.toggleSpeaker();
+            });
+        };
+    }
+
+    // Microphone button (left side)
     document.getElementById('micBtn').onclick = () => toggleMic();
 
     document.getElementById('createBtn').onclick = () => {
