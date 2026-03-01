@@ -167,6 +167,23 @@ export function stopAllMusic() {
     switchBgTrack(null);
 }
 
+/**
+ * Apply mute states to currently playing audio.
+ * Called after user toggles mute buttons.
+ */
+export function applyMuteStates() {
+    // Apply BG music mute
+    if (activeBgTrack && bgTracks[activeBgTrack]) {
+        const track = bgTracks[activeBgTrack];
+        const targetVol = bgMuted ? 0 : (activeBgTrack === 'finalBoss' ? BOSS_VOLUME : BG_VOLUME);
+        if (bgMuted) {
+            track.volume = 0;
+        } else {
+            track.volume = targetVol;
+        }
+    }
+}
+
 // ===================== SFX HELPERS =====================
 
 /**

@@ -4,7 +4,7 @@ import { ROLE_COLORS, DISCLAIMER_TEXT } from './constants.js';
 import { toggleSpeaker, toggleMic, connectToPeers } from './voicechat.js';
 import { showError } from './ui.js';
 import { connect } from './network.js';
-import { playSFX, startLobbyMusic, stopAllMusic, toggleBgMute, toggleSfxMute } from './audio.js';
+import { playSFX, startLobbyMusic, stopAllMusic, toggleBgMute, toggleSfxMute, applyMuteStates } from './audio.js';
 
 const lobbyOverlay = document.getElementById('lobbyOverlay');
 const connectScreen = document.getElementById('connectScreen');
@@ -26,6 +26,7 @@ export function initLobby() {
     // Speaker (background music mute) button
     document.getElementById('speakerBtn').onclick = () => {
         const muted = toggleBgMute();
+        applyMuteStates();
         const icon = document.getElementById('speakerBtn').querySelector('i');
         icon.className = muted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
     };

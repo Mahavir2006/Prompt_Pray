@@ -1,6 +1,6 @@
 // ======================== HUD ========================
 import { S } from './state.js';
-import { toggleBgMute, toggleSfxMute } from './audio.js';
+import { toggleBgMute, toggleSfxMute, applyMuteStates } from './audio.js';
 
 const timerDisplay     = document.getElementById('timerDisplay');
 const objectiveDisplay = document.getElementById('objectiveDisplay');
@@ -16,6 +16,7 @@ const hudSfxMuteBtn = document.getElementById('hudSfxMuteBtn');
 if (hudBgMuteBtn) {
     hudBgMuteBtn.onclick = () => {
         const muted = toggleBgMute();
+        applyMuteStates();
         const icon = hudBgMuteBtn.querySelector('i');
         icon.className = muted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
     };
